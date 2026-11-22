@@ -1,0 +1,257 @@
+// Full-screen viewer (<dialog> opened with showModal()).
+// Keys: ←/→ navigate, F favorite, I info, A add to album, Del trash, Esc close.
+
+import { api } from "./api.js";
+import {
+  formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
+} from "./ui.js";
+
+const INFO_KEY = "phobos.viewer.info";
+
+export class Viewer {
+  constructor({ pickAlbum, onChange, onRemove, onRestore }) {
+    this.onRestore = onRestore; // (ids) => void, "Undo" after trashing
+    this.dialog = document.getElementById("viewer");
+    this.stage = document.getElementById("v-stage");
+    this.info = document.getElementById("v-info");
+    this.pickAlbum = pickAlbum;
+    this.onChange = onChange; // (item, grid) => void, after an edit
+    this.onRemove = onRemove; // (ids, grid) => void, after trash/restore
+    this.grid = null;
+    this.idx = 0;
+    this.detail = null; // full record of the current item (tags, albums)
+    this.btn = Object.fromEntries([...this.dialog.querySelectorAll("[data-v]")].map((b) => [b.dataset.v, b]));
+
+    try { this.info.hidden = localStorage.getItem(INFO_KEY) !== "1"; } catch { /* storage unavailable */ }
+    this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
+
+    this.dialog.addEventListener("click", (e) => {
+      const action = e.target.closest("[data-v]")?.dataset.v;
+      if (action && action !== "download") this.#act(action);
+    });
+    this.dialog.addEventListener("keydown", (e) => this.#onKey(e));
+    this.dialog.addEventListener("close", () => this.#onClose());
+  }
+
+  get item() {
+    return this.grid?.items[this.idx];
+  }
+
+  open(grid, idx) {
+    this.grid = grid;
+    this.idx = idx;
+    if (!this.dialog.open) this.dialog.showModal();
+    this.#render();
+  }
+
+  #onClose() {
+    this.stage.replaceChildren(); // stops video playback
+    const tile = this.item && this.grid.tileFor(this.item.id);
+    if (tile) {
+      tile.scrollIntoView({ block: "nearest" });
+      tile.focus({ preventScroll: true });
+    }
+  }
+
+  #onKey(e) {
+    if (e.target.closest("input, textarea")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", a: "album", Delete: "trash" };
+    const action = map[e.key] ?? map[e.key.toLowerCase()];
+    if (!action) return;
+    // Let the video element handle arrow keys (seeking) when it has focus.
+    if (e.target.tagName === "VIDEO" && e.key.startsWith("Arrow")) return;
+    e.preventDefault();
+    this.#act(action);
+  }
+
+  async #act(action) {
+    const item = this.item;
+    try {
+      switch (action) {
+        case "close": return this.dialog.close();
+        case "prev": return this.#go(-1);
+        case "next": return this.#go(1);
+        case "info": {
+          this.info.hidden = !this.info.hidden;
+          this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
+          try { localStorage.setItem(INFO_KEY, this.info.hidden ? "0" : "1"); } catch { /* ignore */ }
+          if (!this.info.hidden) this.#renderInfo();
+          return;
+        }
+        case "favorite": {
+          const updated = await api.patch(`/api/media/${item.id}`, { favorite: !item.favorite });
+          this.#updated(updated);
+          return;
+        }
+        case "album": {
+          const album = await this.pickAlbum();
+          if (!album) return;
+          const r = await api.action([item.id], "add_to_album", { album_id: album.id });
+          toast(r.affected ? `Added to “${album.name}”` : `Already in “${album.name}”`);
+          this.#loadDetail();
+          return;
+        }
+        case "trash": {
+          if (item.deleted_at) return;
+          await api.action([item.id], "trash");
+          toast("Moved to trash", {
+            action: "Undo",
+            onAction: () => this.onRestore([item.id]),
+          });
+          const wasLast = this.idx >= this.grid.items.length - 1;
+          this.onRemove([item.id], this.grid);
+          if (!this.grid.items.length) return this.dialog.close();
+          if (wasLast) this.idx = this.grid.items.length - 1;
+          this.#render();
+          return;
+        }
+      }
+    } catch (err) {
+      toastError(err);
+    }
+  }
+
+  async #go(delta) {
+    const next = this.idx + delta;
+    if (next < 0) return;
+    if (next >= this.grid.items.length) {
+      if (this.grid.done) return;
+      await this.grid.loadMore();
+      if (next >= this.grid.items.length) return;
+    }
+    this.idx = next;
+    this.#render();
+  }
+
+  #updated(item) {
+    this.detail = item;
+    this.onChange(item, this.grid);
+    this.#renderBar();
+    if (!this.info.hidden) this.#renderInfo();
+  }
+
+  #render() {
+    const item = this.item;
+    if (!item) return;
+    this.detail = null;
+    this.#renderBar();
+    this.#renderMedia(item);
+    if (!this.info.hidden) this.#renderInfo();
+    this.#loadDetail();
+    // Near the end of what's loaded? Fetch the next page in the background.
+    if (this.grid.items.length - this.idx < 10) this.grid.loadMore();
+    this.#prefetch();
+  }
+
+  async #loadDetail() {
+    const id = this.item.id;
+    try {
+      const detail = await api.get(`/api/media/${id}`);
+      if (this.item?.id !== id) return;
+      this.detail = detail;
+      if (!this.info.hidden) this.#renderInfo();
+    } catch (err) {
+      toastError(err);
+    }
+  }
+
+  #prefetch() {
+    for (const d of [1, -1, 2]) {
+      const it = this.grid.items[this.idx + d];
+      if (it?.kind === "image") new Image().src = it.preview_url;
+    }
+  }
+
+  #renderBar() {
+    const item = this.item;
+    document.getElementById("v-date").textContent = formatLongDate(item.taken_at);
+    document.getElementById("v-name").textContent = item.original_name;
+    this.btn.favorite.setAttribute("aria-pressed", String(!!item.favorite));
+    this.btn.download.href = item.download_url;
+    this.btn.trash.hidden = !!item.deleted_at;
+    this.btn.album.hidden = !!item.deleted_at;
+    this.btn.prev.disabled = this.idx === 0;
+    this.btn.next.disabled = this.grid.done && this.idx >= this.grid.items.length - 1;
+  }
+
+  #renderMedia(item) {
+    if (item.kind === "image") {
+      const img = h("img", { src: item.preview_url, alt: item.description || item.original_name });
+      this.stage.replaceChildren(img);
+      return;
+    }
+    const video = h("video", {
+      src: item.original_url, controls: true, autoplay: true, playsInline: true, preload: "metadata",
+      poster: item.thumb_url,
+    });
+    video.addEventListener("error", () => {
+      this.stage.replaceChildren(h("div.unplayable", {},
+        icon("video"),
+        h("p", { text: "This browser can't play this video format (e.g. HEVC, AVI, MKV codecs)." }),
+        h("a.btn.primary", { href: item.download_url, download: "" }, icon("download"), h("span", { text: "Download original" }))));
+    });
+    this.stage.replaceChildren(video);
+  }
+
+  #renderInfo() {
+    const item = this.detail ?? this.item;
+    const save = async (body) => {
+      try {
+        this.#updated(await api.patch(`/api/media/${item.id}`, body));
+      } catch (err) {
+        toastError(err);
+      }
+    };
+
+    const desc = h("textarea", { rows: 3, placeholder: "Add a description", value: item.description ?? "", maxLength: 5000 });
+    desc.addEventListener("change", () => save({ description: desc.value }));
+
+    const when = h("input", { type: "datetime-local", step: 1, value: item.taken_at });
+    when.addEventListener("change", () => when.value && save({ taken_at: when.value }));
+
+    const tags = this.detail?.tags ?? [];
+    const tagInput = h("input", { placeholder: "Add tag, press Enter", maxLength: 64, "aria-label": "Add tag" });
+    tagInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && tagInput.value.trim()) {
+        e.preventDefault();
+        save({ tags: [...tags, tagInput.value.trim()] });
+      }
+    });
+    const tagChips = tags.map((t) =>
+      h("span.chip", {},
+        h("a", { href: `#/photos?tag=${encodeURIComponent(t)}`, text: t, onclick: () => this.dialog.close() }),
+        h("button", { type: "button", "aria-label": `Remove tag ${t}`, onclick: () => save({ tags: tags.filter((x) => x !== t) }) }, icon("close"))));
+
+    const albums = (this.detail?.albums ?? []).map((a) =>
+      h("a.chip", { href: `#/albums/${a.id}`, onclick: () => this.dialog.close() }, icon("album"), h("span", { text: a.name })));
+
+    const rows = [
+      ["Taken", `${formatDateTime(item.taken_at)}${item.taken_at_source === "exif" || item.taken_at_source === "video" ? "" : ` (from ${item.taken_at_source})`}`],
+      ["File", item.original_name],
+      ["Size", `${item.width && item.height ? `${item.width} × ${item.height} · ` : ""}${formatBytes(item.size)}`],
+      item.duration ? ["Length", formatDuration(item.duration)] : null,
+      item.camera_model || item.camera_make ? ["Camera", [item.camera_make, item.camera_model].filter(Boolean).join(" ")] : null,
+      ["Stored as", item.rel_path],
+    ].filter(Boolean);
+
+    let location = null;
+    if (item.latitude !== null && item.latitude !== undefined) {
+      const { latitude: lat, longitude: lon } = item;
+      location = h("section", {}, h("span.label", { text: "Location" }),
+        h("a", { href: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}`, target: "_blank", rel: "noopener noreferrer" },
+          `${lat.toFixed(5)}, ${lon.toFixed(5)} ↗`));
+    }
+
+    this.info.replaceChildren(...[
+      h("h2", { text: "Details" }),
+      h("section", {}, h("span.label", { text: "Description" }), desc),
+      h("dl.kv", {}, rows.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: v })])),
+      location,
+      h("section", {}, h("span.label", { text: "Date & time" }), when),
+      h("section", {}, h("span.label", { text: "Tags" }), h("div.chips", {}, tagChips), tagInput),
+      h("section", {}, h("span.label", { text: "Albums" }),
+        albums.length ? h("div.chips", {}, albums) : h("span", { text: "Not in any album", style: "color:#9a929c" })),
+    ].filter(Boolean));
+  }
+}
