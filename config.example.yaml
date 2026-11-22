@@ -1,0 +1,30 @@
+# Phobos configuration. Copy to ~/.config/phobos/config.yaml (picked up automatically),
+# or point to it with `--config path` / the PHOBOS_CONFIG environment variable.
+# Every key is optional; the values below are the defaults.
+
+# Where original files are stored, as YYYY/MM/<date>_<hash>.<ext>.
+# Keep it on the Linux side for speed, or use a Windows drive (e.g. /mnt/d/Phobos)
+# if you want the files to live outside the WSL virtual disk. Browsing stays fast
+# either way because thumbnails come from data_dir.
+library_dir: ~/Phobos
+
+# Database + thumbnail/preview cache. Must be a Linux path (not /mnt/<drive>).
+data_dir: ~/.local/share/phobos
+
+host: 127.0.0.1
+port: 8005
+
+# Video support. Resolved from PATH when empty (sudo apt install ffmpeg).
+# ffmpeg: /usr/bin/ffmpeg
+# ffprobe: /usr/bin/ffprobe
+
+# IANA timezone used to convert UTC video timestamps to local time.
+# Empty = the system timezone of the WSL distro.
+# timezone: America/Buenos_Aires
+
+thumb_size: 360       # grid thumbnails, short side in px
+preview_size: 2048    # viewer previews, long side in px
+import_workers: 4     # parallel files during folder imports
+
+# Extra Host headers to accept, e.g. a LAN IP if you bind to 0.0.0.0.
+allowed_hosts: []

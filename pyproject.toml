@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phobos"
+version = "0.1.0"
+description = "Personal app for managing your photos and videos"
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "pillow>=11",
+    "pillow-heif>=0.18",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi",
+    "jinja2",
+    "python-multipart",
+    "uvicorn",
+]
+dev = [
+    "phobos[web]",
+    "build",
+    "httpx2",
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[project.scripts]
+phobos = "phobos.__main__:main"
+phobos-web = "phobos.web.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"phobos.web" = ["templates/*.html", "static/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["phobos"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PTH", "PL"]
+ignore = [
+    "PLR0911",  # too many return statements
+    "PLR0912",  # too many branches
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic values
+    "B008",     # FastAPI Depends()/Query() in defaults is idiomatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR0915", "PLC0415"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["phobos", "conftest"]
