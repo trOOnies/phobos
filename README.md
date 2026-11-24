@@ -1,85 +1,126 @@
-# phobos
+<p align="center">
+  <img src="src/phobos/web/static/favicon.svg" alt="Phobos logo: a small pink moon" width="120" height="120">
+</p>
 
-Personal app for managing your photos and videos — local, private, no cloud.
+<h1 align="center">Phobos</h1>
 
-- **Timeline** of everything, grouped by month, with a year/month jump rail
-- **Viewer** with keyboard navigation, details panel, description, tags, date fixing
-- **Favorites, albums, tags, search** (names, descriptions, tags, cameras, dates)
-- **Albums sort your library**: items in an album leave the Photos/Videos tabs (a
-  "Show items in albums" switch brings them back). One item can be in many albums and
-  is still stored as a single file
-- **Import** by drag & drop in the browser, or from a folder path (Windows paths work)
-- **Duplicate detection** by content (SHA-256), whatever the file name — each import
-  can list the files it skipped next to the library items they matched
-- **Import history**: which folder was imported when, with counts (also in the server log)
-- **Trash** with restore; nothing is deleted from disk until you empty it
-- **Help** tab with a friendly guide, and an **Exit** button (top right) that stops the server
-- Supports JPEG, PNG, WebP, GIF, HEIC/HEIF, AVIF, TIFF, BMP and MP4, MOV, WebM, MKV, AVI, 3GP, MTS
+<p align="center">
+  <strong>Your photos and videos, organised on your own computer.</strong><br>
+  Private, simple, and no cloud: nothing ever leaves your machine.
+</p>
 
-## Quick start (Ubuntu on WSL)
+---
+
+Phobos is a small app that runs on your computer and opens in your web browser. Point it at
+the folders where your pictures are scattered (phone backups, old drives, WhatsApp
+downloads...) and it gathers them into one tidy library, sorted by the date each photo
+was taken.
+
+Your original files are never moved or changed. Phobos keeps its own organised copy.
+
+## What you can do
+
+- 🖼️ **Browse everything in one place**: your whole library, newest first, grouped by month.
+  Jump back to any year in one click, and switch between all items, only photos or only videos.
+- 🔍 **Look closer**: open any photo or video full screen and flip through with the arrow keys.
+- ❤️ **Favorites, albums and tags**: keep your best shots handy and group trips, birthdays or
+  anything you like. A photo can be in several albums without taking up extra space, and
+  once it's in an album it leaves the main Library so you can see what's left to sort.
+- 🔎 **Search** by file name, description, tag, camera or date (try `2023-07`).
+- ✂️ **Crop photos**: drag a box, pick a shape like Square or 16:9, or let Phobos trim the
+  black borders around screenshots for you. Your original is kept in the Trash, just in case.
+- 📊 **Metrics and cleanup**: see how big your library is and how it grew over the years, and
+  find things you might not want to keep: screenshots with black borders, blank or broken
+  shots, empty or tiny files, accidental 1-second videos and your largest files.
+- 🧭 **No duplicates**: import the same photo twice (even under another name) and Phobos
+  notices. It can show you which files it skipped and what they matched.
+- 🗑️ **A safety net**: deleted items wait in the Trash until you empty it.
+- 📅 **Fix wrong dates**: some files don't remember when they were taken. Correct them in a few clicks.
+- ❓ **Built-in Help** for when you're not sure, and an **Exit** button (the door, top right)
+  that closes Phobos when you're done.
+
+It understands JPEG, PNG, WebP, GIF, HEIC/HEIF (iPhone photos), AVIF, TIFF and BMP, plus
+MP4, MOV, WebM, MKV, AVI, 3GP and MTS videos.
+
+## Getting started
+
+Phobos is made for **Windows with Ubuntu on WSL**, and should feel at home on other Linux systems too.
+
+**1. Install it** (only the first time). In the Ubuntu terminal, inside the Phobos folder:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 make install
-sudo apt install ffmpeg      # optional, for video thumbnails and video metadata
+sudo apt install ffmpeg      # optional: thumbnails and details for videos
+```
+
+**2. Start it:**
+
+```bash
 make serve                   # or: phobos-web
 ```
 
-Open <http://localhost:8005> in Firefox/Chrome on Windows (WSL forwards `localhost`).
+**3. Open <http://localhost:8005>** in Firefox, Chrome or Edge on Windows.
 
-Import your first photos from the **Import** page:
+**4. Bring in your photos** from the **Import** page:
 
-- **Choose folder** opens Phobos' own folder browser (your Pictures/OneDrive folder and
-  every Windows drive are one click away). The server imports the folder directly, so
-  there's no browser "upload all files from this folder?" prompt and nothing is sent over HTTP.
-- Or paste a path straight from Explorer's address bar (`C:\Users\you\Pictures`).
-- Or drop files/folders onto the page (these are uploaded through the browser).
+- **Choose folder** lets you pick a folder on your computer. Your Pictures and OneDrive
+  folders and every Windows drive are one click away.
+- Or paste a folder path straight from Windows Explorer, like `C:\Users\you\Pictures`.
+- Or just drag photos and folders onto the page.
 
-## Where your files live
+When you're done, click the **door** in the top right corner to close Phobos. Next time,
+run `make serve` again.
 
-| What                       | Default                        | Why                                                                                                           |
-|----------------------------|--------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Originals (`library_dir`)  | `~/Phobos`                     | Plain folders `YYYY/MM/20240715_143012_ab12cd34.jpg`. Readable without Phobos — no lock-in.                    |
-| DB + cache (`data_dir`)    | `~/.local/share/phobos`        | `phobos.db` (SQLite) and WebP thumbnails/previews. Must be on the Linux filesystem.                           |
+## Where your photos are kept
 
-The reasoning, since WSL makes this choice matter:
+| What | Where (by default) | |
+|------|--------------------|---|
+| Your library | `~/Phobos` | Ordinary folders by year and month. You can open them without Phobos. |
+| Albums, tags, favorites and thumbnails | `~/.local/share/phobos` | Phobos' database and picture cache. |
 
-- **Imports copy, never move or modify.** Your source folders stay as they were; the
-  library is an organised copy. Duplicates (same bytes) are skipped.
-- **The Linux filesystem (ext4) is the default for speed.** Reading `/mnt/c` goes
-  through the 9P bridge and is many times slower, and SQLite's locking isn't
-  reliable there — so the database and cache always stay on the Linux side.
-- **But the WSL disk is a single `ext4.vhdx` file.** If the distro is unregistered,
-  that data goes with it, and Windows backup tools (File History, OneDrive) don't see
-  it. So **back up `library_dir` and the database**, or put the originals on a
-  Windows drive instead:
+From Windows, the library is at `\\wsl.localhost\<your distro>\home\<you>\Phobos`. The
+Import and Help pages show you the exact path.
 
-  ```yaml
-  # ~/.config/phobos/config.yaml
-  library_dir: /mnt/d/Phobos
-  ```
+### Please keep a backup
 
-  That trades some import/viewing-original speed for Windows-visible files.
-  Browsing stays fast because the grid and viewer use the cache in `data_dir`.
-- From Windows, the default library is at `\\wsl.localhost\<distro>\home\<you>\Phobos`
-  (the Import page shows the exact path with a copy button).
-- Files you add to the library folder by hand are picked up by **Rescan library**.
-  Rescan also reports indexed files that went missing, and rebuilds the index if the
-  database is ever lost (albums, tags and favorites live only in the DB, so back it up).
-
-Backups:
+The Ubuntu side of WSL lives in a single virtual disk file that Windows backup tools
+(File History, OneDrive) don't see. Copy your library and database somewhere safe from
+time to time:
 
 ```bash
-phobos backup-db ~/backups/phobos-$(date +%F).db   # consistent copy, safe while running
-rsync -a ~/Phobos/ /mnt/d/Backups/Phobos/          # originals
+phobos backup-db ~/backups/phobos-$(date +%F).db   # safe while Phobos is running
+rsync -a ~/Phobos/ /mnt/d/Backups/Phobos/          # your photos and videos
 ```
 
-## Configuration
+Prefer to keep the photos on a Windows drive? Create `~/.config/phobos/config.yaml` with:
 
-See [`config.example.yaml`](config.example.yaml). Copy it to `~/.config/phobos/config.yaml`
-or pass `--config`. `PHOBOS_LIBRARY_DIR` / `PHOBOS_DATA_DIR` override the paths.
+```yaml
+library_dir: /mnt/d/Phobos
+```
 
-## Command line
+Importing gets a little slower, but browsing stays fast. The database always stays on
+the Ubuntu side, where it is quick and reliable.
+
+Added files to the library folder by hand, or lost the database? **Rescan library** on the
+Import page finds new files and rebuilds what it can. Albums, tags and favorites only
+live in the database, so do back it up.
+
+## Handy shortcuts
+
+| Where | Keys |
+|-------|------|
+| Library | `/` search · `Ctrl`+click or `Shift`+click to select · `Ctrl+A` select all · `Esc` clear |
+| Viewer | `←` `→` previous / next · `F` favorite · `I` details · `A` add to album · `E` crop · `Del` trash · `Esc` close |
+
+## Settings
+
+Every setting is optional. See [`config.example.yaml`](config.example.yaml) for the full
+list (library location, port, thumbnail size, time zone...). Copy it to
+`~/.config/phobos/config.yaml` or pass `--config`. `PHOBOS_LIBRARY_DIR` and
+`PHOBOS_DATA_DIR` override the two paths.
+
+Phobos also has a command line:
 
 ```bash
 phobos-web [--config FILE] [--host H] [--port P] [--reload]
@@ -89,54 +130,50 @@ phobos info
 phobos backup-db DEST
 ```
 
-## Keyboard
+## Privacy
 
-| Where   | Keys                                                                                  |
-|---------|---------------------------------------------------------------------------------------|
-| Grid    | `/` search · `Ctrl+click` / `Shift+click` select · `Ctrl+A` select loaded · `Esc` clear |
-| Viewer  | `←` `→` navigate · `F` favorite · `I` details · `A` add to album · `Del` trash · `Esc` close |
+Phobos only listens on your own computer (`127.0.0.1`), so other devices can't reach it.
+It also refuses requests that other websites open in your browser try to send it. Your
+pictures are never uploaded anywhere.
 
-## How it's built
+## For the curious: how it's built
 
-- **Backend:** FastAPI + stdlib `sqlite3` (WAL mode, numbered migrations), Pillow +
-  pillow-heif for images, `ffprobe`/`ffmpeg` for video (with a built-in MP4/MOV
-  parser for dates when ffprobe is missing).
-- **Frontend:** plain HTML/CSS/JS modules — no framework, no build step, nothing to
-  `npm install`. Native `<dialog>`, `loading="lazy"`, `IntersectionObserver`,
-  `light-dark()` theming that follows the OS. Layout tuned for full and half-width
-  windows next to Firefox's vertical tabs (the nav collapses to icons, and the
-  viewer's details panel moves below the photo).
-- **Capture dates**: EXIF → video container tags → file name patterns
-  (`IMG_20240715_143012`, `PXL_…`, `Screenshot_…`, WhatsApp `IMG-20240715-WA…`) → file
-  time (for browser uploads, the file's original modified time). Fix wrong ones in the
-  viewer.
-- **Viewer previews** are generated on demand (2048px WebP), so HEIC and TIFF display
-  in any browser. Videos stream from the original with HTTP range requests (seeking
-  works); codecs the browser can't decode (e.g. some HEVC) offer a download instead.
-- **Security:** binds to `127.0.0.1`; the API rejects unknown `Host` headers (DNS
-  rebinding) and requires an `X-Phobos` header on state-changing requests (so other
-  sites open in your browser can't trigger actions).
-
-Layout:
+- **Backend:** Python with FastAPI and SQLite. Pillow and pillow-heif handle images, and
+  `ffmpeg`/`ffprobe` handle video (a built-in MP4/MOV reader finds dates when ffprobe is missing).
+- **Frontend:** plain HTML, CSS and JavaScript. No framework, no build step, nothing to
+  `npm install`. It follows your system's light or dark theme and works in a half-width window.
+- **Dates** come from the camera's EXIF data, then the video's own tags, then patterns in the
+  file name (`IMG_20240715_143012`, `PXL_…`, `Screenshot_…`, WhatsApp `IMG-20240715-WA…`),
+  and finally the file's modified time.
+- **Duplicates** are spotted by content (SHA-256), so renamed copies are caught too.
+- **Previews** are made on demand, so HEIC and TIFF show in any browser. Videos stream with
+  seeking; formats the browser can't play offer a download instead.
+- **Edits** write a new file. The original is only moved to the Trash if you choose to.
 
 ```
 src/phobos/
-  config.py     settings (YAML + env)
+  config.py     settings (YAML + environment)
   db.py         SQLite connection, schema migrations, backup
-  repo.py       queries (media, albums, tags, timeline, keyset pagination)
-  metadata.py   EXIF / video / filename date extraction
-  thumbs.py     thumbnail + preview rendering (WebP cache keyed by hash)
-  library.py    import, dedupe, purge, rescan, uploads
-  jobs.py       background folder imports / rescans with progress
-  web/          FastAPI app, JSON API, template + static JS/CSS
+  repo.py       queries (media, albums, tags, timeline, metrics, cleanup)
+  metadata.py   EXIF / video / file name date extraction
+  thumbs.py     thumbnails and previews (WebP cache keyed by content hash)
+  analysis.py   black-border and blank-shot detection for the cleanup tool
+  library.py    import, duplicates, cropping, purge, rescan, uploads
+  jobs.py       background folder imports and rescans with progress
+  web/          FastAPI app, JSON API, page template and static JS/CSS
 tests/          pytest suite
 ```
 
-## Development
+### Development
 
 ```bash
 make test      # pytest with coverage
 make lint      # ruff check --fix
 make format    # ruff format
-make check     # all of the above without modifying files
+make check     # all of the above, without modifying files
 ```
+
+## License
+
+Phobos is free software under the [GNU General Public License v3.0](LICENSE).
+Source code and issues: <https://github.com/trOOnies/phobos>.
