@@ -4,6 +4,7 @@
 // Grid routes accept ?q=<text>&tag=<name>.
 
 import { api } from "./api.js";
+import { exitApp } from "./exit.js";
 import { MediaGrid } from "./grid.js";
 import { filesFromDrop, renderImport, uploader } from "./importer.js";
 import {
@@ -19,6 +20,10 @@ const selectionCount = document.getElementById("selection-count");
 const selectionActions = document.getElementById("selection-actions");
 
 let current = { grid: null, ctx: null, disposers: [] };
+// Aborted on Exit, which removes every global listener below at once.
+const app = new AbortController();
+const listen = (target, type, fn) => target.addEventListener(type, fn, { signal: app.signal });
+
 // Items that are in an album are left out of Photos and Videos unless this is on.
 const SHOW_ALBUM_ITEMS_KEY = "phobos.showAlbumItems";
 let showAlbumItems = false;
@@ -378,7 +383,7 @@ async function restore(ids) {
   } catch (err) { toastError(err); }
 }
 
-document.querySelector('[data-sel="clear"]').addEventListener("click", () => current.grid?.clearSelection());
+listen(document.querySelector('[data-sel="clear"]'), "click", () => current.grid?.clearSelection());
 
 // ------------------------------------------------------------------ album picker
 
@@ -431,19 +436,19 @@ const zoom = document.getElementById("zoom");
 const applyZoom = (v) => document.documentElement.style.setProperty("--tile", `${v}px`);
 try { zoom.value = localStorage.getItem(ZOOM_KEY) ?? zoom.value; } catch { /* storage unavailable */ }
 applyZoom(zoom.value);
-zoom.addEventListener("input", () => {
+listen(zoom, "input", () => {
   applyZoom(zoom.value);
   try { localStorage.setItem(ZOOM_KEY, zoom.value); } catch { /* ignore */ }
 });
 
 const onSearch = debounce(() => navigateWithParams({ q: searchInput.value.trim() }), 300);
-searchInput.addEventListener("input", onSearch);
-document.getElementById("search-form").addEventListener("submit", (e) => {
+listen(searchInput, "input", onSearch);
+listen(document.getElementById("search-form"), "submit", (e) => {
   e.preventDefault();
   navigateWithParams({ q: searchInput.value.trim() });
 });
 
-document.addEventListener("keydown", (e) => {
+listen(document, "keydown", (e) => {
   if (document.querySelector("dialog[open]")) return;
   const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
   if (e.key === "Escape" && current.grid?.selecting) current.grid.clearSelection();
@@ -461,10 +466,10 @@ document.addEventListener("keydown", (e) => {
 const overlay = document.getElementById("drop-overlay");
 let dragDepth = 0;
 const hasFiles = (e) => e.dataTransfer?.types.includes("Files");
-addEventListener("dragenter", (e) => { if (hasFiles(e)) { dragDepth++; overlay.hidden = false; } });
-addEventListener("dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; overlay.hidden = true; } });
-addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
-addEventListener("drop", async (e) => {
+listen(window, "dragenter", (e) => { if (hasFiles(e)) { dragDepth++; overlay.hidden = false; } });
+listen(window, "dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; overlay.hidden = true; } });
+listen(window, "dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+listen(window, "drop", async (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
   dragDepth = 0;
@@ -474,10 +479,15 @@ addEventListener("drop", async (e) => {
   if (parseRoute().name !== "import") location.hash = "#/import";
 });
 
-addEventListener("phobos:library-changed", () => {
+listen(window, "phobos:library-changed", () => {
   if (["photos", "videos", "favorites"].includes(parseRoute().name) && !current.grid?.selecting) render();
 });
-addEventListener("hashchange", render);
+listen(window, "hashchange", render);
 // Other modules (e.g. the duplicates list) open items in the viewer with a grid-like list.
-addEventListener("phobos:view", (e) => viewer.open(e.detail.grid, e.detail.index));
+listen(window, "phobos:view", (e) => viewer.open(e.detail.grid, e.detail.index));
+
+listen(document.getElementById("exit-btn"), "click", () => exitApp(() => {
+  dispose(); // stops the current view's timers (e.g. import progress polling)
+  app.abort();
+}));
 render();

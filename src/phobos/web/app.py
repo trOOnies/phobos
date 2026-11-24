@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,6 +38,20 @@ class DevStaticFiles(StaticFiles):
         return response
 
 
+RELOAD_ENV = "PHOBOS_RELOAD"
+
+
+def stop_server() -> None:
+    """Ask uvicorn to shut down gracefully, as if Ctrl+C was pressed in its terminal.
+
+    With ``--reload`` the app runs in a worker process under a reloader that would
+    just keep waiting for file changes, so the reloader is stopped instead (it then
+    stops the worker).
+    """
+    target = os.getppid() if os.environ.get(RELOAD_ENV) == "1" else os.getpid()
+    os.kill(target, signal.SIGTERM)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
 
@@ -54,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.jobs.shutdown()
 
     app = FastAPI(title="Phobos", version=__version__, lifespan=lifespan)
+    app.state.stop_server = stop_server  # swapped out in tests
 
     # The server only listens on localhost, but any web page open in the browser
     # can still send requests to it. Two cheap defences:

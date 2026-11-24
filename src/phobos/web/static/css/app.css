@@ -418,3 +418,45 @@ dialog.wide { width: min(640px, calc(100vw - 32px)); }
 .album-choices button > span { flex: 1; min-width: 0; }
 .album-choices button > svg { color: var(--accent); }
 
+
+/* ------------------------------------------------------------------ exit */
+
+.exit-btn { margin-inline-start: -4px; color: var(--muted); }
+@media (hover: hover) { .exit-btn:hover { color: var(--text); } }
+
+.exit-dialog .dialog-body { text-align: center; justify-items: center; }
+.exit-dialog .dialog-actions { justify-self: stretch; justify-content: center; }
+.exit-dialog .btn svg { width: 18px; height: 18px; }
+.exit-warn { color: var(--danger) !important; font-size: .92rem; }
+.orbit { position: relative; width: 120px; height: 120px; margin: 4px 0 2px; border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.orbit .planet { position: absolute; inset: 34px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f0a070, #b8461f 55%, #5a1d0c); box-shadow: 0 0 18px #c8522a55; }
+.orbit .moon { position: absolute; top: -17px; left: calc(50% - 17px); transform-origin: 17px 77px; }
+@media (prefers-reduced-motion: no-preference) {
+  .orbit .moon { animation: orbit 7s linear infinite; }
+  @keyframes orbit { to { rotate: 360deg; } }
+}
+
+body.closed { background: radial-gradient(ellipse at 50% 30%, #2a1424, #0b0910 70%); color: #ece7eb;
+  color-scheme: dark; }
+.farewell { position: relative; min-height: 100dvh; display: grid; place-content: center; justify-items: center;
+  gap: 14px; padding: 40px 24px; text-align: center; overflow: hidden; }
+.farewell > :not(.stars) { position: relative; max-width: 60ch; margin: 0; }
+.farewell h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); letter-spacing: .01em; }
+.farewell .lead { font-size: 1.15rem; }
+.farewell .hint { color: #a39aa1; font-size: .92rem; }
+.farewell code.path { background: #ffffff14; color: #f3a9d1; }
+.farewell-orbit { width: 140px; height: 140px; margin-bottom: 8px; }
+.farewell-moon { width: 100%; height: 100%; filter: drop-shadow(0 0 28px #e48bbd55); stroke: none; }
+.stars { position: absolute; inset: 0; pointer-events: none; opacity: .8;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 78% 12%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 30% 72%, #fff, transparent), radial-gradient(1px 1px at 88% 64%, #fff, transparent),
+    radial-gradient(1px 1px at 55% 88%, #fff, transparent), radial-gradient(1.5px 1.5px at 66% 34%, #fff, transparent),
+    radial-gradient(1px 1px at 8% 52%, #fff, transparent), radial-gradient(1px 1px at 44% 8%, #fff, transparent),
+    radial-gradient(1px 1px at 94% 86%, #fff, transparent), radial-gradient(1.5px 1.5px at 20% 92%, #fff, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .farewell-orbit { animation: drift 6s ease-in-out infinite alternate; }
+  @keyframes drift { from { translate: 0 -6px; rotate: -4deg; } to { translate: 0 6px; rotate: 4deg; } }
+}

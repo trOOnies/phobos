@@ -493,3 +493,30 @@ def test_folders_endpoint(client: TestClient, src_dir: Path, no_ffmpeg):
     assert client.get("/api/folders", params={"path": r"Q:\nope"}).status_code == 404
     assert client.get("/api/folders", params={"path": str(src_dir / "a.jpg")}).status_code == 404
     assert client.get("/api/folders").status_code == 200  # default starting place
+
+
+def test_shutdown(client: TestClient):
+    calls = []
+    client.app.state.stop_server = lambda: calls.append(1)
+    assert client.post("/api/shutdown", headers={"X-Phobos": ""}).status_code == 403
+    assert calls == []
+    r = client.post("/api/shutdown")
+    assert r.status_code == 202
+    assert r.json() == {"stopping": True}
+    assert calls == [1]  # background task ran after the response
+
+
+def test_stop_server_signals(monkeypatch):
+    import signal
+
+    from phobos.web import app as app_module
+
+    sent = []
+    monkeypatch.setattr(app_module.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    monkeypatch.setattr(app_module.os, "getpid", lambda: 100)
+    monkeypatch.setattr(app_module.os, "getppid", lambda: 99)
+    monkeypatch.delenv("PHOBOS_RELOAD", raising=False)
+    app_module.stop_server()
+    monkeypatch.setenv("PHOBOS_RELOAD", "1")
+    app_module.stop_server()
+    assert sent == [(100, signal.SIGTERM), (99, signal.SIGTERM)]

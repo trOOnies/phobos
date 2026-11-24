@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.config:
         # The factory re-reads settings in the (possibly reloaded) worker process.
         os.environ["PHOBOS_CONFIG"] = args.config
+    if args.reload:
+        # Tells the worker that Exit must stop the reloader process too (see app.stop_server).
+        os.environ["PHOBOS_RELOAD"] = "1"
     settings = load_settings(args.config, host=args.host, port=args.port)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
 

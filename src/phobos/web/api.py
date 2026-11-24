@@ -11,7 +11,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -122,6 +132,14 @@ def info(library: LibraryDep, conn: ConnDep) -> dict[str, Any]:
         "warnings": s.warnings(),
         "stats": repo.stats(conn),
     }
+
+
+@router.post("/shutdown", status_code=202)
+def shutdown(request: Request, background: BackgroundTasks) -> dict[str, Any]:
+    """Stop the server (the UI's Exit button). Runs after the response is sent."""
+    log.info("exit requested from the web UI - stopping the server")
+    background.add_task(request.app.state.stop_server)
+    return {"stopping": True}
 
 
 # --------------------------------------------------------------------------- media
