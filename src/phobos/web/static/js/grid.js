@@ -147,6 +147,28 @@ export class MediaGrid {
 
   // ------------------------------------------------------------------ selection
 
+  /** Put ``item`` where ``oldId`` was (an edit that replaced the original). */
+  swap(oldId, item) {
+    const idx = this.items.findIndex((i) => i.id === oldId);
+    if (idx < 0) return false;
+    this.items[idx] = item;
+    this.index.delete(oldId);
+    this.index.set(item.id, item);
+    this.selected.delete(oldId);
+    this.tileFor(oldId)?.replaceWith(this.#tile(item));
+    return true;
+  }
+
+  /** Show ``item`` right after ``refId`` (an edit saved as a copy). */
+  insertAfter(refId, item) {
+    const idx = this.items.findIndex((i) => i.id === refId);
+    if (idx < 0 || this.index.has(item.id)) return false;
+    this.items.splice(idx + 1, 0, item);
+    this.index.set(item.id, item);
+    this.tileFor(refId)?.after(this.#tile(item));
+    return true;
+  }
+
   get selecting() {
     return this.selected.size > 0;
   }

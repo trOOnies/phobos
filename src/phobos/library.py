@@ -2,7 +2,8 @@
 
 Files are never modified. Importing copies a file into
 ``<library_dir>/YYYY/MM/YYYYMMDD_HHMMSS_<sha8>.<ext>``; duplicates (same
-SHA-256) are detected and skipped no matter what their name is.
+SHA-256) are detected and skipped no matter what their name is. Editing a photo
+writes a new file next to it (the original is only trashed if asked to).
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from phobos import db, repo, thumbs
+from PIL import Image, ImageOps
+
+from phobos import analysis, db, repo, thumbs
 from phobos.config import Settings
 from phobos.metadata import extract_metadata, local_tz
 from phobos.paths import iter_media_files, library_rel_path, media_kind, mime_type
@@ -37,6 +40,50 @@ def sha256_file(path: Path) -> str:
         while chunk := fh.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
+
+
+# Formats an edited photo is saved back in; anything else (HEIC, AVIF...) becomes JPEG.
+EDIT_FORMATS = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP",
+                ".tif": "TIFF", ".tiff": "TIFF", ".bmp": "BMP"}  # fmt: skip
+EXIF_ORIENTATION = 0x0112
+
+
+class EditError(ValueError):
+    """An edit that can't be done (shown to the user as is)."""
+
+
+def _render_crop(
+    src: Path, box: tuple[float, float, float, float]
+) -> tuple[Image.Image, str, str, dict[str, Any]]:
+    """Cropped upright image plus the format, extension and save options to write it with."""
+    left, top, right, bottom = box
+    with Image.open(src) as im:
+        exif = im.getexif()
+        icc = im.info.get("icc_profile")
+        img = ImageOps.exif_transpose(im)
+    w, h = img.size
+    px = (round(left * w), round(top * h), round(right * w), round(bottom * h))
+    if px[2] - px[0] < 8 or px[3] - px[1] < 8:
+        raise EditError("The crop area is too small.")
+    if px == (0, 0, w, h):
+        raise EditError("Nothing to crop: the area covers the whole picture.")
+    out = img.crop(px)
+
+    ext = src.suffix.lower()
+    fmt = EDIT_FORMATS.get(ext)
+    out_ext = ext if fmt else ".jpg"
+    fmt = fmt or "JPEG"
+    if fmt == "JPEG" and out.mode not in ("RGB", "L"):
+        out = out.convert("RGB")
+    exif.pop(EXIF_ORIENTATION, None)  # the pixels are upright now
+    kwargs: dict[str, Any] = {}
+    if fmt in ("JPEG", "PNG", "WEBP"):
+        kwargs["exif"] = exif.tobytes()
+    if icc and fmt in ("JPEG", "PNG", "WEBP", "TIFF"):
+        kwargs["icc_profile"] = icc
+    if fmt in ("JPEG", "WEBP"):
+        kwargs["quality"] = 95
+    return out, fmt, out_ext, kwargs
 
 
 @dataclass
@@ -231,6 +278,74 @@ class Library:
                 if not dst.exists():
                     thumbs.make_image_preview(src, dst, self.settings.preview_size)
         return dst
+
+    # ------------------------------------------------------------------ analysis
+
+    def analyze(self, item: dict[str, Any]) -> dict[str, Any] | None:
+        """Analyse one image (cached until its content changes)."""
+        with self.conn() as conn:
+            cached = repo.get_analysis(conn, item, analysis.VERSION)
+        if cached is not None or item["kind"] != "image":
+            return cached
+        try:
+            result = analysis.analyze_image(self.original_path(item))
+            fields: dict[str, Any] = {"crop": result.crop, "mean": result.mean,
+                                      "stddev": result.stddev}  # fmt: skip
+        except FileNotFoundError:
+            fields = {"error": "the file is missing from the library folder"}
+        except Exception as exc:
+            fields = {"error": str(exc) or exc.__class__.__name__}
+        with self.conn() as conn:
+            repo.save_analysis(conn, item, analysis.VERSION, **fields)
+            return repo.get_analysis(conn, item, analysis.VERSION)
+
+    # ------------------------------------------------------------------ editing
+
+    def crop(
+        self, item: dict[str, Any], box: tuple[float, float, float, float], *, replace: bool
+    ) -> int:
+        """Save a cropped copy of a photo and return its id.
+
+        ``box`` is (left, top, right, bottom) as fractions of the upright picture.
+        The copy gets the original's date, description, favorite, tags and albums.
+        With ``replace`` the original goes to the trash (restorable until emptied).
+        """
+        if item["kind"] != "image":
+            raise EditError("Only photos can be edited.")
+        if item["deleted_at"]:
+            raise EditError("Restore this photo from the trash before editing it.")
+        src = self.original_path(item)
+        ext = src.suffix.lower()
+        if ext == ".gif":
+            raise EditError("GIFs can't be edited yet.")
+        left, top, right, bottom = box
+        if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+            raise EditError("The crop area is outside the picture.")
+        if not src.exists():
+            raise EditError("The original file is missing from the library folder.")
+
+        out, fmt, out_ext, kwargs = _render_crop(src, box)
+        name = f"{Path(item['original_name']).stem}_cropped{out_ext}"
+        tmp = self.settings.incoming_dir / f"{uuid.uuid4().hex}{out_ext}"
+        try:
+            out.save(tmp, fmt, **kwargs)
+            result = self.import_file(
+                tmp, original_name=name, move=True,
+                fallback_time=datetime.fromisoformat(item["taken_at"]),
+            )  # fmt: skip
+        finally:
+            tmp.unlink(missing_ok=True)
+        if result.status not in ("imported", "duplicate") or result.media_id is None:
+            raise EditError(f"Couldn't save the edited photo: {result.message or result.status}")
+
+        with self.conn() as conn:
+            if result.status == "imported":
+                repo.copy_media_details(conn, item["id"], result.media_id, take_over_covers=replace)
+            if replace:
+                repo.trash(conn, [item["id"]])
+        log.info("cropped %s -> media %s%s", item["rel_path"], result.media_id,
+                 " (original trashed)" if replace else "")  # fmt: skip
+        return result.media_id
 
     # ------------------------------------------------------------------ deletion
 

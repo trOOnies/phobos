@@ -34,6 +34,7 @@
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2"/></symbol>
     <symbol id="i-door" viewBox="0 0 24 24"><path d="M3 21h18M13 3h5v18"/><path d="M13 3 6 5v15l7 1z"/><path d="M8.6 12.5v.01"/></symbol>
+    <symbol id="i-crop" viewBox="0 0 24 24"><path d="M7 3v12a2 2 0 0 0 2 2h12M3 7h12a2 2 0 0 1 2 2v12"/></symbol>
     <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.6M12 17v.01"/></symbol>
   </svg>
 
@@ -79,6 +80,7 @@
         <div class="viewer-title"><strong id="v-date"></strong><span id="v-name"></span></div>
         <button type="button" class="icon-btn" data-v="favorite" aria-label="Favorite (F)" title="Favorite (F)" aria-pressed="false"><svg><use href="#i-heart"/></svg></button>
         <button type="button" class="icon-btn" data-v="album" aria-label="Add to album (A)" title="Add to album (A)"><svg><use href="#i-album"/></svg></button>
+        <button type="button" class="icon-btn" data-v="edit" aria-label="Edit (E)" title="Edit: crop (E)"><svg><use href="#i-crop"/></svg></button>
         <a class="icon-btn" data-v="download" aria-label="Download original" title="Download original" download><svg><use href="#i-download"/></svg></a>
         <button type="button" class="icon-btn" data-v="trash" aria-label="Move to trash (Del)" title="Move to trash (Del)"><svg><use href="#i-trash"/></svg></button>
         <button type="button" class="icon-btn" data-v="info" aria-label="Info (I)" title="Info (I)" aria-pressed="false"><svg><use href="#i-info"/></svg></button>
@@ -235,6 +237,18 @@
         </section>
 
         <section class="card">
+          <h2>Cropping a photo</h2>
+          <ul>
+            <li>Open a photo and click the <strong>crop</strong> button (or press <kbd>E</kbd>).</li>
+            <li>Drag the box or its corners, or pick a shape like <strong>Square</strong> or <strong>16:9</strong>.
+              <strong>Trim black borders</strong> finds the picture inside a black screenshot background for you.</li>
+            <li><strong>Save</strong> keeps the cropped photo and puts the original in the Trash, just in case.
+              <strong>Save as copy</strong> keeps both.</li>
+            <li>The cropped photo keeps its date, description, tags, albums and favorite.</li>
+          </ul>
+        </section>
+
+        <section class="card">
           <h2>Trash</h2>
           <p>Deleted items wait in the <a href="#/trash">Trash</a> until you empty it, so you can always
             change your mind and <strong>Restore</strong> them. Emptying the trash removes the files for good.</p>
@@ -259,6 +273,7 @@
             <dt><kbd>F</kbd></dt><dd>Favorite</dd>
             <dt><kbd>I</kbd></dt><dd>Show details</dd>
             <dt><kbd>A</kbd></dt><dd>Add to album</dd>
+            <dt><kbd>E</kbd></dt><dd>Crop the photo</dd>
             <dt><kbd>Del</kbd></dt><dd>Move to trash</dd>
           </dl>
         </section>

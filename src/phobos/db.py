@@ -95,6 +95,22 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX import_duplicates_media ON import_duplicates (media_id);
     """,
+    # 3 - cached image analysis for the cleanup tool (black borders, blank shots)
+    """
+    CREATE TABLE media_analysis (
+        media_id    INTEGER PRIMARY KEY REFERENCES media (id) ON DELETE CASCADE,
+        sha256      TEXT NOT NULL,
+        version     INTEGER NOT NULL,
+        crop_left   REAL,
+        crop_top    REAL,
+        crop_right  REAL,
+        crop_bottom REAL,
+        mean        REAL,
+        stddev      REAL,
+        error       TEXT,
+        analyzed_at TEXT NOT NULL
+    );
+    """,
 ]
 
 

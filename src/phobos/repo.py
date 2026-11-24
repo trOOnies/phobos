@@ -470,3 +470,65 @@ def interrupt_unfinished_imports(conn: sqlite3.Connection) -> int:
         "UPDATE imports SET status = 'interrupted', finished_at = ? WHERE finished_at IS NULL",
         (now_iso(),),
     ).rowcount
+
+
+# --------------------------------------------------------------------------- editing
+
+
+def copy_media_details(
+    conn: sqlite3.Connection, src_id: int, dst_id: int, *, take_over_covers: bool = False
+) -> None:
+    """Give an edited copy the original's date, description, favorite, tags and albums."""
+    with transaction(conn):
+        conn.execute(
+            "UPDATE media SET (taken_at, taken_at_source, description, favorite, camera_make, "
+            "camera_model, latitude, longitude) = (SELECT taken_at, taken_at_source, description, "
+            "favorite, camera_make, camera_model, latitude, longitude FROM media WHERE id = ?) "
+            "WHERE id = ?",
+            (src_id, dst_id),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO media_tags (media_id, tag_id) "
+            "SELECT ?, tag_id FROM media_tags WHERE media_id = ?",
+            (dst_id, src_id),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO album_media (album_id, media_id, added_at) "
+            "SELECT album_id, ?, ? FROM album_media WHERE media_id = ?",
+            (dst_id, now_iso(), src_id),
+        )
+        if take_over_covers:
+            conn.execute(
+                "UPDATE albums SET cover_media_id = ? WHERE cover_media_id = ?", (dst_id, src_id)
+            )
+
+
+# --------------------------------------------------------------------------- analysis
+
+
+def save_analysis(
+    conn: sqlite3.Connection,
+    item: dict[str, Any],
+    version: int,
+    *,
+    crop: Sequence[float] | None = None,
+    mean: float | None = None,
+    stddev: float | None = None,
+    error: str | None = None,
+) -> None:
+    left, top, right, bottom = crop if crop else (None, None, None, None)
+    conn.execute(
+        "INSERT OR REPLACE INTO media_analysis (media_id, sha256, version, crop_left, crop_top, "
+        "crop_right, crop_bottom, mean, stddev, error, analyzed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (item["id"], item["sha256"], version, left, top, right, bottom, mean, stddev, error,
+         now_iso()),
+    )  # fmt: skip
+
+
+def get_analysis(conn: sqlite3.Connection, item: dict[str, Any], version: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM media_analysis WHERE media_id = ? AND sha256 = ? AND version = ?",
+        (item["id"], item["sha256"], version),
+    ).fetchone()
+    return dict(row) if row else None

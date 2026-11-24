@@ -1,7 +1,8 @@
 // Full-screen viewer (<dialog> opened with showModal()).
-// Keys: ←/→ navigate, F favorite, I info, A add to album, Del trash, Esc close.
+// Keys: ←/→ navigate, F favorite, I info, A add to album, E edit (crop), Del trash, Esc close.
 
 import { api } from "./api.js";
+import { CropEditor } from "./editor.js";
 import {
   formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
 } from "./ui.js";
@@ -29,7 +30,12 @@ export class Viewer {
       const action = e.target.closest("[data-v]")?.dataset.v;
       if (action && action !== "download") this.#act(action);
     });
+    this.editor = new CropEditor(this.dialog);
     this.dialog.addEventListener("keydown", (e) => this.#onKey(e));
+    // Esc while cropping leaves the editor, not the viewer.
+    this.dialog.addEventListener("cancel", (e) => {
+      if (this.editor.open) { e.preventDefault(); this.editor.cancel(); }
+    });
     this.dialog.addEventListener("close", () => this.#onClose());
   }
 
@@ -45,6 +51,7 @@ export class Viewer {
   }
 
   #onClose() {
+    if (this.editor.open) this.editor.cancel();
     this.stage.replaceChildren(); // stops video playback
     const tile = this.item && this.grid.tileFor(this.item.id);
     if (tile) {
@@ -54,9 +61,10 @@ export class Viewer {
   }
 
   #onKey(e) {
+    if (this.editor.open) return;
     if (e.target.closest("input, textarea")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", a: "album", Delete: "trash" };
+    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", a: "album", e: "edit", Delete: "trash" };
     const action = map[e.key] ?? map[e.key.toLowerCase()];
     if (!action) return;
     // Let the video element handle arrow keys (seeking) when it has focus.
@@ -92,6 +100,12 @@ export class Viewer {
           this.#loadDetail();
           return;
         }
+        case "edit": {
+          if (!editable(item)) return;
+          const result = await this.editor.edit(item);
+          if (result) this.#edited(item, result);
+          return;
+        }
         case "trash": {
           if (item.deleted_at) return;
           await api.action([item.id], "trash");
@@ -122,6 +136,32 @@ export class Viewer {
     }
     this.idx = next;
     this.#render();
+  }
+
+  /** After a crop: show the new photo where the old one was (or right after it, for a copy). */
+  #edited(old, { media, replaced }) {
+    if (replaced) {
+      toast("Cropped. The original is in the Trash.", {
+        action: "Undo",
+        onAction: async () => {
+          try {
+            await api.action([media.id], "trash");
+            if (this.dialog.open) this.dialog.close();
+            this.onRestore([old.id]); // brings the original back and reloads the view
+          } catch (err) { toastError(err); }
+        },
+      });
+      if (this.grid.swap?.(old.id, media)) return this.#render();
+      this.onRemove([old.id], this.grid); // a list that can't show the new item: drop the old one
+      if (!this.grid.items.length) return this.dialog.close();
+      this.idx = Math.min(this.idx, this.grid.items.length - 1);
+      return this.#render();
+    }
+    toast("Saved a cropped copy next to the original.");
+    if (this.grid.insertAfter?.(old.id, media)) {
+      this.idx += 1;
+      this.#render();
+    }
   }
 
   #updated(item) {
@@ -171,6 +211,7 @@ export class Viewer {
     this.btn.download.href = item.download_url;
     this.btn.trash.hidden = !!item.deleted_at;
     this.btn.album.hidden = !!item.deleted_at;
+    this.btn.edit.hidden = !editable(item);
     this.btn.prev.disabled = this.idx === 0;
     this.btn.next.disabled = this.grid.done && this.idx >= this.grid.items.length - 1;
   }
@@ -254,4 +295,9 @@ export class Viewer {
         albums.length ? h("div.chips", {}, albums) : h("span", { text: "Not in any album", style: "color:#9a929c" })),
     ].filter(Boolean));
   }
+}
+
+/** Photos that can be cropped (not videos, GIFs or trashed items). */
+function editable(item) {
+  return item.kind === "image" && item.mime !== "image/gif" && !item.deleted_at;
 }

@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from phobos import __version__, repo
 from phobos.jobs import JobManager
-from phobos.library import Library
+from phobos.library import EditError, Library
 from phobos.paths import browse_roots, list_folder, normalize_input_path, to_windows_path
 
 log = logging.getLogger(__name__)
@@ -285,6 +285,56 @@ def original(media_id: int, conn: ConnDep, library: LibraryDep, download: bool =
         content_disposition_type="attachment" if download else "inline",
         headers={"Cache-Control": "private, max-age=3600"},
     )
+
+
+class CropBox(BaseModel):
+    """Fractions (0-1) of the upright picture."""
+
+    left: float = Field(ge=0, le=1)
+    top: float = Field(ge=0, le=1)
+    right: float = Field(ge=0, le=1)
+    bottom: float = Field(ge=0, le=1)
+
+
+class EditIn(BaseModel):
+    crop: CropBox
+    # copy: keep the original next to the edit; replace: the original goes to the trash
+    mode: Literal["copy", "replace"] = "copy"
+
+
+@router.post("/media/{media_id}/edit")
+def edit_media(media_id: int, body: EditIn, conn: ConnDep, library: LibraryDep) -> dict[str, Any]:
+    item = _require_media(conn, media_id)
+    c = body.crop
+    try:
+        new_id = library.crop(
+            item, (c.left, c.top, c.right, c.bottom), replace=body.mode == "replace"
+        )
+    except EditError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "media": serialize(_require_media(conn, new_id)),
+        "replaced": media_id if body.mode == "replace" else None,
+    }
+
+
+def _analysis_out(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    crop = None
+    if row.get("crop_left") is not None:
+        crop = {k: row[f"crop_{k}"] for k in ("left", "top", "right", "bottom")}
+    return {"crop": crop, "mean": row.get("mean"), "stddev": row.get("stddev"),
+            "error": row.get("error")}  # fmt: skip
+
+
+@router.get("/media/{media_id}/analysis")
+def media_analysis(media_id: int, conn: ConnDep, library: LibraryDep) -> dict[str, Any]:
+    """Black-border crop suggestion for one photo (analysed now if needed)."""
+    item = _require_media(conn, media_id)
+    if item["kind"] != "image":
+        raise HTTPException(400, "only photos are analysed")
+    return _analysis_out(library.analyze(item)) or {}
 
 
 # --------------------------------------------------------------------------- tags
