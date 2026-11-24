@@ -1,6 +1,6 @@
 // App shell: hash router, library/album/trash views, selection actions.
 //
-// Routes: #/photos  #/favorites  #/videos  #/albums  #/albums/<id>  #/trash  #/import
+// Routes: #/photos  #/favorites  #/videos  #/albums  #/albums/<id>  #/trash  #/import  #/help
 // Grid routes accept ?q=<text>&tag=<name>.
 
 import { api } from "./api.js";
@@ -84,6 +84,8 @@ async function render() {
         return route.id ? await albumView(Number(route.id), { q, tag }) : await albumsView();
       case "import":
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
+      case "help":
+        return await helpView();
       default:
         return await libraryView({ title: tag ? `Tag: ${tag}` : "Photos", filter: { q, tag, ...albumScope() }, ctx: "photos",
           albumToggle: true, empty: searching ? emptyState("search", "No matches.") : welcome() });
@@ -292,6 +294,23 @@ async function albumsView() {
 function yearRange(a) {
   const y1 = a.first_taken_at.slice(0, 4), y2 = a.last_taken_at.slice(0, 4);
   return y1 === y2 ? y1 : `${y1}–${y2}`;
+}
+
+// ------------------------------------------------------------------ help
+
+async function helpView() {
+  const page = document.getElementById("help-template").content.cloneNode(true);
+  page.querySelector('[data-help="url"]').textContent = location.origin;
+  const lib = page.querySelector('[data-help="library"]');
+  view.replaceChildren(page);
+  try {
+    const info = await api.get("/api/info");
+    lib.textContent = info.library_dir_windows || info.library_dir;
+    if (info.library_dir_windows) lib.title = info.library_dir;
+  } catch (err) {
+    lib.textContent = "~/Phobos (default)";
+    toastError(err);
+  }
 }
 
 // ------------------------------------------------------------------ selection actions

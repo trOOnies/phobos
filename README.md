@@ -13,6 +13,7 @@ Personal app for managing your photos and videos — local, private, no cloud.
   can list the files it skipped next to the library items they matched
 - **Import history**: which folder was imported when, with counts (also in the server log)
 - **Trash** with restore; nothing is deleted from disk until you empty it
+- **Help** tab with a friendly guide, and an **Exit** button (top right) that stops the server
 - Supports JPEG, PNG, WebP, GIF, HEIC/HEIF, AVIF, TIFF, BMP and MP4, MOV, WebM, MKV, AVI, 3GP, MTS
 
 ## Quick start (Ubuntu on WSL)

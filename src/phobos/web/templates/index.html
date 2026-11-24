@@ -34,6 +34,7 @@
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z"/><circle cx="12" cy="10" r="2"/></symbol>
     <symbol id="i-door" viewBox="0 0 24 24"><path d="M3 21h18M13 3h5v18"/><path d="M13 3 6 5v15l7 1z"/><path d="M8.6 12.5v.01"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.6M12 17v.01"/></symbol>
   </svg>
 
   <header class="topbar">
@@ -46,6 +47,7 @@
       <a href="#/videos" data-nav="videos"><svg><use href="#i-video"/></svg><span>Videos</span></a>
       <a href="#/albums" data-nav="albums"><svg><use href="#i-album"/></svg><span>Albums</span></a>
       <a href="#/trash" data-nav="trash"><svg><use href="#i-trash"/></svg><span>Trash</span></a>
+      <a href="#/help" data-nav="help"><svg><use href="#i-help"/></svg><span>Help</span></a>
     </nav>
     <form class="search" role="search" id="search-form">
       <svg aria-hidden="true"><use href="#i-search"/></svg>
@@ -164,5 +166,125 @@
     </form>
   </dialog>
 
+  <!-- Help page (rendered by #/help) -->
+  <template id="help-template">
+    <div class="page help">
+      <div class="page-head"><h1>Help</h1><span class="meta">Everything you need to know about Phobos</span></div>
+      <p class="help-intro">
+        Phobos keeps your photos and videos organised on your own computer. Nothing is uploaded
+        to the internet &ndash; it all stays with you.
+      </p>
+      <div class="help-grid">
+        <section class="card">
+          <h2>Getting started</h2>
+          <ol>
+            <li>Open <a href="#/import">Import</a> (top right).</li>
+            <li>Click <strong>Choose folder</strong> and pick a folder with pictures, or paste its
+              path from Windows Explorer. You can also drag photos straight onto the page.</li>
+            <li>That's it! Your photos appear under <a href="#/photos">Photos</a>, sorted by the date they were taken.</li>
+          </ol>
+          <p>Phobos <strong>copies</strong> your files &ndash; the originals are never moved or changed.
+            If you import the same photo twice, Phobos notices and skips the copy.</p>
+        </section>
+
+        <section class="card">
+          <h2>Browsing</h2>
+          <ul>
+            <li><strong>Photos</strong> shows your library, newest first. <strong>Videos</strong> shows only videos.</li>
+            <li>Click any thumbnail to open it big. Use the arrow keys to move to the next or previous one.</li>
+            <li>The years on the right let you jump back in time.</li>
+            <li>The slider at the top changes the thumbnail size.</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>Albums</h2>
+          <ul>
+            <li>Select photos and click <strong>Add to album</strong> (or press <kbd>A</kbd> in the viewer).</li>
+            <li>Once something is in an album, it moves out of the <strong>Photos</strong> and
+              <strong>Videos</strong> tabs, so those only show what's still unsorted.</li>
+            <li>Want to see everything anyway? Turn on <strong>Show items in albums</strong> at the top of those tabs.</li>
+            <li>A photo can be in <strong>several albums</strong> at once. It's still a single file &ndash; no extra disk space used.</li>
+            <li>Deleting an album never deletes its photos: they go back to the Photos tab.</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>Selecting several at once</h2>
+          <ul>
+            <li>Hover a thumbnail and click its round check mark, or hold <kbd>Ctrl</kbd> and click.</li>
+            <li>Hold <kbd>Shift</kbd> and click to select everything in between.</li>
+            <li>Use the bar at the top to favorite, tag, add to an album or move to the trash.</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>Favorites, tags and search</h2>
+          <ul>
+            <li>Press the <strong>&hearts;</strong> (or <kbd>F</kbd> in the viewer) to keep your best shots under <a href="#/favorites">Favorites</a>.</li>
+            <li>Tags are little labels like &ldquo;birthday&rdquo; or &ldquo;grandma&rdquo;. Add them in the viewer's details panel (<kbd>I</kbd>).</li>
+            <li>The search box finds file names, descriptions, tags, camera models and dates (try &ldquo;2023-07&rdquo;).</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>Fixing a wrong date</h2>
+          <p>Some photos (screenshots, messages from chat apps) don't remember when they were taken.
+            Open the photo, press <kbd>I</kbd> for details and change <strong>Date &amp; time</strong>.
+            It moves to the right place in the timeline straight away.</p>
+        </section>
+
+        <section class="card">
+          <h2>Trash</h2>
+          <p>Deleted items wait in the <a href="#/trash">Trash</a> until you empty it, so you can always
+            change your mind and <strong>Restore</strong> them. Emptying the trash removes the files for good.</p>
+        </section>
+
+        <section class="card">
+          <h2>Where are my files?</h2>
+          <p>Your library is kept in plain folders by year and month, so you can always open it
+            without Phobos:</p>
+          <p><code class="path" data-help="library">&hellip;</code></p>
+          <p>Albums, tags and favorites live in Phobos' database. To keep a backup, copy the library
+            folder and run <code class="path">phobos backup-db</code>.</p>
+        </section>
+
+        <section class="card">
+          <h2>Keyboard shortcuts</h2>
+          <dl class="kv keys">
+            <dt><kbd>/</kbd></dt><dd>Search</dd>
+            <dt><kbd>Ctrl</kbd> <kbd>A</kbd></dt><dd>Select everything loaded</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Clear the selection / close the viewer</dd>
+            <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next in the viewer</dd>
+            <dt><kbd>F</kbd></dt><dd>Favorite</dd>
+            <dt><kbd>I</kbd></dt><dd>Show details</dd>
+            <dt><kbd>A</kbd></dt><dd>Add to album</dd>
+            <dt><kbd>Del</kbd></dt><dd>Move to trash</dd>
+          </dl>
+        </section>
+
+        <section class="card">
+          <h2>Closing Phobos</h2>
+          <p>Click the <strong>door</strong> in the top right corner and confirm. Phobos stops
+            and you can close the tab. To come back, run <code class="path">phobos-web</code>
+            (or <code class="path">make serve</code>) and open
+            <code class="path" data-help="url">http://localhost:8005</code> again.</p>
+        </section>
+
+        <section class="card">
+          <h2>About Phobos</h2>
+          <p>Phobos is free and open source. Its code, updates and a place to report problems
+            or suggest ideas are on GitHub:</p>
+          <p><a href="https://github.com/trOOnies/phobos" target="_blank" rel="noopener noreferrer">github.com/trOOnies/phobos</a></p>
+          <p>It's licensed under the <strong>GNU General Public License v3.0</strong>: you can use,
+            study, share and change it, as long as shared versions stay under the same license.</p>
+        </section>
+      </div>
+      <footer class="site-footer">
+        <p>&copy; 2026 Phobos by trOOnies</p>
+        <p>Made with Claude Code</p>
+      </footer>
+    </div>
+  </template>
 </body>
 </html>

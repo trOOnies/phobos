@@ -418,6 +418,20 @@ dialog.wide { width: min(640px, calc(100vw - 32px)); }
 .album-choices button > span { flex: 1; min-width: 0; }
 .album-choices button > svg { color: var(--accent); }
 
+/* ------------------------------------------------------------------ help */
+
+.help { max-width: 1200px; }
+.help-intro { margin: -4px 0 18px; color: var(--muted); max-width: 70ch; }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px;
+  align-items: start; }
+.help .card p { color: var(--text); }
+.help .card p:last-child { margin-bottom: 0; }
+.help .card ul, .help .card ol { margin: 0 0 12px; padding-inline-start: 20px; display: grid; gap: 6px; }
+.help .card :is(ul, ol):last-child { margin-bottom: 0; }
+.help dl.keys { gap: 8px 14px; align-items: center; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border-radius: 5px; text-align: center;
+  font: .82rem/1.4 ui-monospace, monospace; background: var(--surface-2); border: 1px solid var(--border);
+  border-bottom-width: 2px; }
 
 /* ------------------------------------------------------------------ exit */
 
@@ -460,3 +474,5 @@ body.closed { background: radial-gradient(ellipse at 50% 30%, #2a1424, #0b0910 7
   .farewell-orbit { animation: drift 6s ease-in-out infinite alternate; }
   @keyframes drift { from { translate: 0 -6px; rotate: -4deg; } to { translate: 0 6px; rotate: 4deg; } }
 }
+.site-footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: .8rem; opacity: .8; }
+.site-footer p { margin: 2px 0; }
