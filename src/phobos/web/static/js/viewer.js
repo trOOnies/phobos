@@ -85,7 +85,7 @@ export class Viewer {
           return;
         }
         case "album": {
-          const album = await this.pickAlbum();
+          const album = await this.pickAlbum({ contains: (this.detail?.albums ?? []).map((x) => x.id) });
           if (!album) return;
           const r = await api.action([item.id], "add_to_album", { album_id: album.id });
           toast(r.affected ? `Added to “${album.name}”` : `Already in “${album.name}”`);

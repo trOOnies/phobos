@@ -250,6 +250,50 @@ def test_albums(client: TestClient, seeded):
 # ------------------------------------------------------------------ files
 
 
+def test_item_in_several_albums_is_one_file(client: TestClient, seeded, no_ffmpeg):
+    a = client.post("/api/albums", json={"name": "Beach"}).json()["id"]
+    b = client.post("/api/albums", json={"name": "Family"}).json()["id"]
+    for album_id in (a, b):
+        r = client.post(
+            "/api/media/actions",
+            json={"ids": [seeded[1]], "action": "add_to_album", "album_id": album_id},
+        )
+        assert r.json() == {"affected": 1}
+    item = client.get(f"/api/media/{seeded[1]}").json()
+    assert [x["name"] for x in item["albums"]] == ["Beach", "Family"]
+    assert ids_of(client.get(f"/api/media?album={a}")) == [seeded[1]]
+    assert ids_of(client.get(f"/api/media?album={b}")) == [seeded[1]]
+    # still a single library entry and a single file on disk
+    assert client.get("/api/info").json()["stats"]["photos"] == 5
+    files = [p for p in no_ffmpeg.library_dir.rglob("*") if p.is_file()]
+    assert len(files) == 6
+    # leaving one album keeps it in the other
+    client.post(
+        "/api/media/actions",
+        json={"ids": [seeded[1]], "action": "remove_from_album", "album_id": a},
+    )
+    item = client.get(f"/api/media/{seeded[1]}").json()
+    assert [x["name"] for x in item["albums"]] == ["Family"]
+
+
+def test_in_album_filter(client: TestClient, seeded):
+    aid = client.post("/api/albums", json={"name": "Trip"}).json()["id"]
+    client.post(
+        "/api/media/actions",
+        json={"ids": [seeded[0], seeded[2]], "action": "add_to_album", "album_id": aid},
+    )
+    outside = [i for i in seeded if i not in (seeded[0], seeded[2])]
+    assert ids_of(client.get("/api/media?in_album=false")) == outside
+    assert ids_of(client.get("/api/media?in_album=true")) == [seeded[0], seeded[2]]
+    assert ids_of(client.get("/api/media")) == seeded  # no filter: everything
+    assert ids_of(client.get("/api/media?kind=video&in_album=false")) == []
+    tl = client.get("/api/timeline?in_album=false").json()
+    assert sum(t["count"] for t in tl) == len(outside)
+    # deleting the album brings its items back to the main views
+    client.delete(f"/api/albums/{aid}")
+    assert ids_of(client.get("/api/media?in_album=false")) == seeded
+
+
 def test_thumb_preview_original(client: TestClient, seeded):
     photo, video = seeded[1], seeded[0]
     r = client.get(f"/api/media/{photo}/thumb")

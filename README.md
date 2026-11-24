@@ -5,6 +5,9 @@ Personal app for managing your photos and videos — local, private, no cloud.
 - **Timeline** of everything, grouped by month, with a year/month jump rail
 - **Viewer** with keyboard navigation, details panel, description, tags, date fixing
 - **Favorites, albums, tags, search** (names, descriptions, tags, cameras, dates)
+- **Albums sort your library**: items in an album leave the Photos/Videos tabs (a
+  "Show items in albums" switch brings them back). One item can be in many albums and
+  is still stored as a single file
 - **Import** by drag & drop in the browser, or from a folder path (Windows paths work)
 - **Duplicate detection** by content (SHA-256), whatever the file name — each import
   can list the files it skipped next to the library items they matched

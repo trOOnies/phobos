@@ -19,6 +19,12 @@ const selectionCount = document.getElementById("selection-count");
 const selectionActions = document.getElementById("selection-actions");
 
 let current = { grid: null, ctx: null, disposers: [] };
+// Items that are in an album are left out of Photos and Videos unless this is on.
+const SHOW_ALBUM_ITEMS_KEY = "phobos.showAlbumItems";
+let showAlbumItems = false;
+try { showAlbumItems = localStorage.getItem(SHOW_ALBUM_ITEMS_KEY) === "1"; } catch { /* storage unavailable */ }
+// qs() drops boolean false, so the "not in any album" filter is sent as a string.
+const albumScope = () => (showAlbumItems ? {} : { in_album: "false" });
 
 // ------------------------------------------------------------------ routing
 
@@ -65,8 +71,8 @@ async function render() {
         return await libraryView({ title: "Favorites", filter: { favorite: true, q, tag }, ctx: "favorites",
           empty: emptyState("heart", searching ? "No matches." : "No favorites yet. Press F in the viewer or ♥ in the selection bar.") });
       case "videos":
-        return await libraryView({ title: "Videos", filter: { kind: "video", q, tag }, ctx: "videos",
-          empty: emptyState("video", searching ? "No matches." : "No videos yet.") });
+        return await libraryView({ title: "Videos", filter: { kind: "video", q, tag, ...albumScope() }, ctx: "videos",
+          albumToggle: true, empty: emptyState("video", searching ? "No matches." : "No videos yet.") });
       case "trash":
         return await trashView({ q, tag });
       case "albums":
@@ -74,8 +80,8 @@ async function render() {
       case "import":
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
       default:
-        return await libraryView({ title: tag ? `Tag: ${tag}` : "Photos", filter: { q, tag }, ctx: "photos",
-          empty: searching ? emptyState("search", "No matches.") : welcome() });
+        return await libraryView({ title: tag ? `Tag: ${tag}` : "Photos", filter: { q, tag, ...albumScope() }, ctx: "photos",
+          albumToggle: true, empty: searching ? emptyState("search", "No matches.") : welcome() });
     }
   } catch (err) {
     toastError(err);
@@ -108,22 +114,34 @@ function makeGrid(filter, empty, ctx) {
 
 const searchMeta = (filter) => (filter.q ? `matching “${filter.q}”` : "");
 
-async function libraryView({ title, filter, ctx, empty, head = [], extra = null }) {
-  const grid = makeGrid(filter, empty, ctx);
+async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false }) {
+  // Wrapped so the message can change once we know whether albums hold everything.
+  const emptyBox = h("div", {}, empty);
+  const grid = makeGrid(filter, emptyBox, ctx);
   const meta = h("span.meta");
   const banner = h("div.notice", { hidden: true });
   const rail = h("nav.rail", { "aria-label": "Jump to date" });
   const clear = filter.q || filter.tag ? button("Clear search", { onclick: () => navigateWithParams({ q: "", tag: "" }) }) : null;
+  const toggle = albumToggle ? albumItemsToggle() : null;
   const page = h("div.page.library", {},
     h("div", {},
-      h("div.page-head", {}, ...head, h("h1", { text: title }), meta, h("div.actions", {}, clear)),
+      h("div.page-head", {}, ...head, h("h1", { text: title }), meta, h("div.actions", {}, toggle, clear)),
       extra, banner, grid.el),
     rail);
   view.replaceChildren(page);
 
-  const [timeline] = await Promise.all([api.timeline(filter), grid.reset()]);
+  const hiding = albumToggle && !showAlbumItems;
+  const [timeline, , inAlbums] = await Promise.all([
+    api.timeline(filter), grid.reset(),
+    hiding ? api.timeline({ ...filter, in_album: true }) : null,
+  ]);
   const total = timeline.reduce((s, t) => s + t.count, 0);
-  meta.textContent = [plural(total, "item"), searchMeta(filter)].filter(Boolean).join(" ");
+  const hidden = inAlbums?.reduce((s, t) => s + t.count, 0) ?? 0;
+  meta.textContent = [plural(total, "item"), searchMeta(filter)].filter(Boolean).join(" ")
+    + (hidden ? ` · ${hidden.toLocaleString()} more in albums` : "");
+  if (!total && hidden) {
+    emptyBox.replaceChildren(emptyState("album", `Everything here is in an album. Turn on “Show items in albums” to see ${hidden === 1 ? "it" : "them"} here too.`));
+  }
   grid.setCounts(timeline);
   buildRail(rail, timeline, async (month) => {
     banner.replaceChildren(h("span", { text: `Showing ${formatMonth(month)} and earlier.` }),
@@ -133,6 +151,19 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null 
     scrollTo({ top: 0 });
   });
   return grid;
+}
+
+function albumItemsToggle() {
+  const input = h("input", {
+    type: "checkbox", role: "switch", checked: showAlbumItems,
+    onchange: () => {
+      showAlbumItems = input.checked;
+      try { localStorage.setItem(SHOW_ALBUM_ITEMS_KEY, showAlbumItems ? "1" : "0"); } catch { /* ignore */ }
+      render();
+    },
+  });
+  return h("label.switch", { title: "Photos and videos that are in an album are hidden here unless this is on" },
+    input, h("span", { text: "Show items in albums" }));
 }
 
 /** Cursor that starts listing at the end of ``month`` (YYYY-MM). */
@@ -299,10 +330,13 @@ function updateSelectionBar(grid) {
       button("Add to album", { icon: "album", onclick: () => run(async () => {
         const album = await pickAlbum();
         if (!album) return;
-        const r = await api.action(ids(), "add_to_album", { album_id: album.id });
+        const sel = ids();
+        const r = await api.action(sel, "add_to_album", { album_id: album.id });
         const msg = r.affected ? `Added ${plural(r.affected, "item")} to “${album.name}”` : `Already in “${album.name}”`;
         toast(msg, { action: "Open", onAction: () => { location.hash = `#/albums/${album.id}`; } });
-        grid.clearSelection();
+        // Photos/Videos only list items outside albums (unless the toggle is on).
+        if (["photos", "videos"].includes(current.ctx) && !showAlbumItems) grid.remove(sel);
+        else grid.clearSelection();
       }) }),
       button("Tag", { icon: "tag", onclick: () => run(async () => {
         const tag = await promptDialog({ title: "Add a tag", label: "Tag", confirm: "Add" });
@@ -348,15 +382,19 @@ document.querySelector('[data-sel="clear"]').addEventListener("click", () => cur
 
 // ------------------------------------------------------------------ album picker
 
-async function pickAlbum() {
+/** @param {{contains?: number[]}} opts  albums the item is already in (marked, not hidden) */
+async function pickAlbum({ contains = [] } = {}) {
   const d = document.getElementById("album-picker");
   const list = d.querySelector("#album-choices");
   const nameInput = d.querySelector("#album-new-name");
   const albums = await api.get("/api/albums");
+  const already = new Set(contains);
   nameInput.value = "";
   list.replaceChildren(...albums.map((a) => h("button", { type: "submit", value: `a:${a.id}` },
     a.cover_id ? h("img", { src: `/api/media/${a.cover_id}/thumb`, alt: "" }) : h("span.ph"),
-    h("span", {}, h("strong", { text: a.name }), h("small", { text: plural(a.count, "item") })))));
+    h("span", {}, h("strong", { text: a.name }),
+      h("small", { text: plural(a.count, "item") + (already.has(a.id) ? " · already in here" : "") })),
+    already.has(a.id) ? icon("check") : null)));
   if (!albums.length) list.append(h("p", { text: "No albums yet - create one below." }));
   const result = new Promise((resolve) => d.addEventListener("close", () => {
     const v = d.returnValue;

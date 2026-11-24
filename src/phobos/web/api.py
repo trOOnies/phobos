@@ -64,13 +64,14 @@ def media_filter(
     kind: Literal["image", "video"] | None = None,
     favorite: bool | None = None,
     album: int | None = None,
+    in_album: bool | None = None,
     tag: str | None = None,
     q: str | None = None,
     date_from: Annotated[str | None, Query(alias="from")] = None,
     date_to: Annotated[str | None, Query(alias="to")] = None,
 ) -> repo.MediaFilter:
     return repo.MediaFilter(
-        trash=trash, kind=kind, favorite=favorite, album_id=album, tag=tag,
+        trash=trash, kind=kind, favorite=favorite, album_id=album, in_album=in_album, tag=tag,
         q=(q or "").strip() or None, date_from=date_from, date_to=date_to,
     )  # fmt: skip
 

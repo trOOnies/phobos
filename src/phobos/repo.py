@@ -70,6 +70,8 @@ class MediaFilter:
     kind: str | None = None
     favorite: bool | None = None
     album_id: int | None = None
+    # True: only items in at least one album; False: only items in no album.
+    in_album: bool | None = None
     tag: str | None = None
     q: str | None = None
     date_from: str | None = None  # inclusive, ISO date/datetime
@@ -89,6 +91,11 @@ class MediaFilter:
                 "EXISTS (SELECT 1 FROM album_media am WHERE am.media_id = m.id AND am.album_id = ?)"
             )
             params.append(self.album_id)
+        if self.in_album is not None:
+            clauses.append(
+                ("" if self.in_album else "NOT ")
+                + "EXISTS (SELECT 1 FROM album_media am WHERE am.media_id = m.id)"
+            )
         if self.tag:
             clauses.append(
                 "EXISTS (SELECT 1 FROM media_tags mt JOIN tags t ON t.id = mt.tag_id "
