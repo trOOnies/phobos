@@ -14,6 +14,7 @@ import os
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -298,6 +299,21 @@ class Library:
         with self.conn() as conn:
             repo.save_analysis(conn, item, analysis.VERSION, **fields)
             return repo.get_analysis(conn, item, analysis.VERSION)
+
+    def analyze_pending(self, budget_s: float = 1.5, batch: int = 100) -> dict[str, int]:
+        """Analyse not-yet-analysed images for about ``budget_s`` seconds."""
+        deadline = time.monotonic() + budget_s
+        with self.conn() as conn:
+            items = repo.pending_analysis(conn, analysis.VERSION, batch)
+        done = 0
+        for item in items:
+            if done and time.monotonic() > deadline:
+                break
+            self.analyze(item)
+            done += 1
+        with self.conn() as conn:
+            remaining = repo.count_pending_analysis(conn, analysis.VERSION)
+        return {"analyzed": done, "remaining": remaining}
 
     # ------------------------------------------------------------------ editing
 

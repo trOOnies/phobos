@@ -25,7 +25,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from phobos import __version__, repo
+from phobos import __version__, analysis, repo
 from phobos.jobs import JobManager
 from phobos.library import EditError, Library
 from phobos.paths import browse_roots, list_folder, normalize_input_path, to_windows_path
@@ -335,6 +335,79 @@ def media_analysis(media_id: int, conn: ConnDep, library: LibraryDep) -> dict[st
     if item["kind"] != "image":
         raise HTTPException(400, "only photos are analysed")
     return _analysis_out(library.analyze(item)) or {}
+
+
+# --------------------------------------------------------------------------- metrics
+
+
+@router.get("/metrics")
+def metrics(conn: ConnDep, library: LibraryDep) -> dict[str, Any]:
+    out = repo.metrics(conn)
+    try:
+        usage = shutil.disk_usage(library.settings.library_dir)
+        out["disk"] = {"total": usage.total, "free": usage.free, "used": usage.used}
+    except OSError:
+        out["disk"] = None
+    return out
+
+
+def _cleanup_params(small_kb: int) -> dict[str, Any]:
+    return {"version": analysis.VERSION, "small": small_kb * 1024, "blank": analysis.BLANK_STDDEV}
+
+
+SmallKb = Annotated[int, Query(ge=1, le=10_000)]
+
+
+@router.get("/cleanup")
+def cleanup_summary(conn: ConnDep, small_kb: SmallKb = 50) -> dict[str, Any]:
+    """Cleanup categories with how many items each holds right now."""
+    params = _cleanup_params(small_kb)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM media WHERE kind = 'image' AND deleted_at IS NULL AND size > 0"
+    ).fetchone()[0]
+    return {
+        "analysis": {
+            "pending": repo.count_pending_analysis(conn, analysis.VERSION),
+            "total": total,
+        },
+        "categories": [
+            {
+                "id": key,
+                "label": label,
+                "description": desc,
+                "count": repo.cleanup_count(conn, key, params),
+            }
+            for key, (label, desc, *_) in repo.CLEANUP.items()
+        ],
+    }
+
+
+@router.get("/cleanup/{category}")
+def cleanup_list(
+    category: str,
+    conn: ConnDep,
+    small_kb: SmallKb = 50,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> dict[str, Any]:
+    if category not in repo.CLEANUP:
+        raise HTTPException(404, "unknown cleanup category")
+    params = _cleanup_params(small_kb)
+    rows = repo.cleanup_items(conn, category, params, limit)
+    items = []
+    for row in rows:
+        extra = _analysis_out(row) if "crop_left" in row else None
+        media = {k: v for k, v in row.items() if k not in _ANALYSIS_KEYS}
+        items.append({"media": serialize(media), "analysis": extra})
+    return {"total": repo.cleanup_count(conn, category, params), "items": items}
+
+
+_ANALYSIS_KEYS = {"crop_left", "crop_top", "crop_right", "crop_bottom", "mean", "stddev", "error"}
+
+
+@router.post("/analysis/run")
+def run_analysis(library: LibraryDep) -> dict[str, Any]:
+    """Analyse the next batch of photos (~1.5 s of work); call again until remaining is 0."""
+    return library.analyze_pending()
 
 
 # --------------------------------------------------------------------------- tags

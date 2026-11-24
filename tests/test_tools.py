@@ -1,4 +1,4 @@
-"""Photo editing (crop)."""
+"""Metrics, the cleanup tool (image analysis) and photo editing (crop)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from conftest import make_image, make_mp4
+from phobos import repo
 
 
 def upload(client: TestClient, path: Path) -> int:
@@ -40,6 +41,103 @@ def items(client: TestClient, src_dir: Path) -> dict[str, int]:
         "black": upload(client, make_image(src_dir / "black.png", color="black", model=None)),
         "clip": upload(client, make_mp4(src_dir / "clip.mp4", duration=1.2)),
     }
+
+
+def analyse_all(client: TestClient) -> None:
+    for _ in range(20):
+        r = client.post("/api/analysis/run").json()
+        if r["remaining"] == 0:
+            return
+    raise AssertionError("analysis never finished")
+
+
+def category(client: TestClient, name: str, **params) -> list[int]:
+    r = client.get(f"/api/cleanup/{name}", params=params)
+    assert r.status_code == 200, r.text
+    return [i["media"]["id"] for i in r.json()["items"]]
+
+
+def test_analysis_finds_black_borders_and_blank_shots(client: TestClient, items):
+    summary = client.get("/api/cleanup").json()
+    assert summary["analysis"] == {"pending": 3, "total": 3}  # photos only
+    analyse_all(client)
+    assert client.get("/api/cleanup").json()["analysis"]["pending"] == 0
+
+    assert category(client, "croppable") == [items["bordered"]]
+    crop = client.get("/api/cleanup/croppable").json()["items"][0]["analysis"]["crop"]
+    assert crop == pytest.approx(
+        {"left": 0.25, "top": 1 / 3, "right": 0.75, "bottom": 2 / 3}, abs=0.02
+    )
+    assert category(client, "blank") == [items["black"]]
+    assert category(client, "broken") == []
+    assert category(client, "short") == [items["clip"]]
+    # every photo here is tiny
+    assert set(category(client, "lowres")) == {items["bordered"], items["plain"], items["black"]}
+    counts = {c["id"]: c["count"] for c in client.get("/api/cleanup").json()["categories"]}
+    assert counts["croppable"] == 1
+    assert counts["largest"] == 4
+    assert client.get("/api/cleanup/nonsense").status_code == 404
+
+    # per-item analysis is cached and matches
+    one = client.get(f"/api/media/{items['bordered']}/analysis").json()
+    assert one["crop"] == pytest.approx(crop)
+    assert client.get(f"/api/media/{items['clip']}/analysis").status_code == 400
+
+
+def test_size_categories(client: TestClient, items, no_ffmpeg):
+    sizes = {i: client.get(f"/api/media/{i}").json()["size"] for i in items.values()}
+    largest = category(client, "largest")
+    assert largest == sorted(sizes, key=lambda i: -sizes[i])
+    assert category(client, "small", small_kb=1) == sorted(
+        [i for i, s in sizes.items() if s < 1024], key=lambda i: sizes[i]
+    )
+    assert category(client, "empty") == []
+
+    # an empty file that made it into the index (e.g. a copy that never finished)
+    empty = no_ffmpeg.library_dir / "2020" / "01" / "empty.jpg"
+    empty.parent.mkdir(parents=True)
+    empty.touch()
+    lib = client.app.state.library
+    with lib.conn() as conn:
+        empty_id = repo.insert_media(conn, {
+            "sha256": "0" * 64, "kind": "image", "rel_path": "2020/01/empty.jpg",
+            "original_name": "empty.jpg", "mime": "image/jpeg", "size": 0,
+            "taken_at": "2020-01-01T00:00:00", "taken_at_source": "file",
+            "imported_at": repo.now_iso(),
+        })  # fmt: skip
+    assert category(client, "empty") == [empty_id]
+    assert empty_id not in category(client, "small", small_kb=1)
+    # trashed items are left out
+    client.post("/api/media/actions", json={"ids": [empty_id], "action": "trash"})
+    assert category(client, "empty") == []
+
+
+def test_broken_file(client: TestClient, src_dir: Path, no_ffmpeg):
+    good = upload(client, textured(src_dir / "a.jpg"))
+    path = no_ffmpeg.library_dir / client.get(f"/api/media/{good}").json()["rel_path"]
+    path.write_bytes(b"not really a jpeg")
+    analyse_all(client)
+    assert category(client, "broken") == [good]
+    assert client.get(f"/api/media/{good}/analysis").json()["error"]
+
+
+def test_metrics(client: TestClient, items):
+    aid = client.post("/api/albums", json={"name": "A"}).json()["id"]
+    client.post(
+        "/api/media/actions",
+        json={"ids": [items["plain"]], "action": "add_to_album", "album_id": aid},
+    )
+    client.post("/api/media/actions", json={"ids": [items["black"]], "action": "trash"})
+    m = client.get("/api/metrics").json()
+    t = m["totals"]
+    assert (t["photos"], t["videos"], t["trash"], t["in_albums"], t["albums"]) == (2, 1, 1, 1, 1)
+    assert t["photo_bytes"] > 0 and t["trash_bytes"] > 0
+    assert [y["year"] for y in m["by_year"]] and sum(
+        y["photos"] + y["videos"] for y in m["by_year"]
+    ) == 3
+    assert {r["mime"] for r in m["by_type"]} == {"image/jpeg", "video/mp4"}
+    assert m["disk"]["total"] > 0
+    assert m["date_sources"]
 
 
 # ------------------------------------------------------------------ editing

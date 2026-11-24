@@ -1,6 +1,6 @@
 // App shell: hash router, library/album/trash views, selection actions.
 //
-// Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/trash  #/import  #/help
+// Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/trash  #/import  #/metrics  #/help
 // Grid routes accept ?q=<text>&tag=<name>; the library also ?kind=image|video.
 // The old #/photos and #/videos routes still work (they open the library).
 
@@ -8,6 +8,7 @@ import { api } from "./api.js";
 import { exitApp } from "./exit.js";
 import { MediaGrid } from "./grid.js";
 import { filesFromDrop, renderImport, uploader } from "./importer.js";
+import { renderMetrics } from "./metrics.js";
 import {
   button, confirmDialog, debounce, formatMonth, formatShortMonth, h, icon, plural, promptDialog,
   toast, toastError,
@@ -94,6 +95,8 @@ async function render() {
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
       case "help":
         return await helpView();
+      case "metrics":
+        return await renderMetrics(view, { onDispose: (fn) => current.disposers.push(fn) });
       default: {
         const kind = ["image", "video"].includes(route.params.get("kind")) ? route.params.get("kind") : undefined;
         const nothing = kind === "video" ? emptyState("video", "No videos yet.")

@@ -505,6 +505,25 @@ def copy_media_details(
 
 # --------------------------------------------------------------------------- analysis
 
+_PENDING_ANALYSIS = (
+    "FROM media m LEFT JOIN media_analysis a ON a.media_id = m.id "
+    "WHERE m.kind = 'image' AND m.deleted_at IS NULL AND m.size > 0 "
+    "AND (a.media_id IS NULL OR a.sha256 != m.sha256 OR a.version != ?)"
+)
+
+
+def pending_analysis(conn: sqlite3.Connection, version: int, limit: int) -> list[dict[str, Any]]:
+    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    rows = conn.execute(
+        f"SELECT {cols} {_PENDING_ANALYSIS} ORDER BY m.taken_at DESC, m.id DESC LIMIT ?",
+        (version, limit),
+    )
+    return [_row(r) for r in rows]  # type: ignore[misc]
+
+
+def count_pending_analysis(conn: sqlite3.Connection, version: int) -> int:
+    return conn.execute(f"SELECT COUNT(*) {_PENDING_ANALYSIS}", (version,)).fetchone()[0]
+
 
 def save_analysis(
     conn: sqlite3.Connection,
@@ -532,3 +551,160 @@ def get_analysis(conn: sqlite3.Connection, item: dict[str, Any], version: int) -
         (item["id"], item["sha256"], version),
     ).fetchone()
     return dict(row) if row else None
+
+
+# --------------------------------------------------------------------------- cleanup
+
+# id -> (label, description, extra join?, where, order). ``:small`` and ``:version``
+# are bound per request. Trashed items never show up.
+_VALID_ANALYSIS = (
+    "JOIN media_analysis a ON a.media_id = m.id AND a.sha256 = m.sha256 AND a.version = :version"
+)
+CLEANUP: dict[str, tuple[str, str, str, str, str]] = {
+    "croppable": (
+        "Black borders",
+        "Screenshots and photos with a black background around them. "
+        "Crop it away to keep just the picture.",
+        _VALID_ANALYSIS,
+        "a.crop_left IS NOT NULL",
+        "(a.crop_right - a.crop_left) * (a.crop_bottom - a.crop_top) ASC",
+    ),
+    "blank": (
+        "Blank or black shots",
+        "Almost a single colour - often taken by accident in a pocket or with the lens covered.",
+        _VALID_ANALYSIS,
+        "a.error IS NULL AND a.stddev < :blank",
+        "a.stddev ASC",
+    ),
+    "broken": (
+        "Can't be opened",
+        "Files Phobos couldn't read. They may be damaged or only partly copied.",
+        _VALID_ANALYSIS,
+        "a.error IS NOT NULL",
+        "m.taken_at DESC",
+    ),
+    "empty": (
+        "Empty files",
+        "Files with nothing in them (0 bytes).",
+        "",
+        "m.size = 0",
+        "m.taken_at DESC",
+    ),
+    "small": (
+        "Very small files",
+        "Tiny files are usually thumbnails, stickers or low-quality copies.",
+        "",
+        "m.size > 0 AND m.size < :small",
+        "m.size ASC",
+    ),
+    "lowres": (
+        "Low resolution",
+        "Photos under 0.3 megapixels, like images saved from chats or old phones.",
+        "",
+        "m.kind = 'image' AND m.width * m.height < 300000",
+        "m.width * m.height ASC",
+    ),
+    "short": (
+        "Very short videos",
+        "Videos under 2 seconds, usually started by accident.",
+        "",
+        "m.kind = 'video' AND m.duration < 2",
+        "m.duration ASC",
+    ),
+    "largest": (
+        "Largest files",
+        "The 50 files taking the most space. Worth a look when the disk fills up.",
+        "",
+        "1",
+        "m.size DESC",
+    ),
+}
+LARGEST_LIMIT = 50
+
+
+def _cleanup_sql(category: str) -> tuple[str, str]:
+    _, _, join, where, order = CLEANUP[category]
+    return f"FROM media m {join} WHERE m.deleted_at IS NULL AND {where}", order
+
+
+def cleanup_count(conn: sqlite3.Connection, category: str, params: dict[str, Any]) -> int:
+    base, _ = _cleanup_sql(category)
+    n = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+    return min(n, LARGEST_LIMIT) if category == "largest" else n
+
+
+def cleanup_items(
+    conn: sqlite3.Connection, category: str, params: dict[str, Any], limit: int
+) -> list[dict[str, Any]]:
+    base, order = _cleanup_sql(category)
+    if category == "largest":
+        limit = min(limit, LARGEST_LIMIT)
+    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    extra = ", a.crop_left, a.crop_top, a.crop_right, a.crop_bottom, a.mean, a.stddev, a.error"
+    if not CLEANUP[category][2]:
+        extra = ""
+    rows = conn.execute(
+        f"SELECT {cols}{extra} {base} ORDER BY {order}, m.id DESC LIMIT :limit",
+        {**params, "limit": limit},
+    )
+    return [_row(r) for r in rows]  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------- metrics
+
+
+def metrics(conn: sqlite3.Connection) -> dict[str, Any]:
+    live = "deleted_at IS NULL"
+    totals = dict(
+        conn.execute(
+            "SELECT"
+            f" COALESCE(SUM(kind = 'image' AND {live}), 0) AS photos,"
+            f" COALESCE(SUM(kind = 'video' AND {live}), 0) AS videos,"
+            f" COALESCE(SUM(CASE WHEN kind = 'image' AND {live} THEN size END), 0) AS photo_bytes,"
+            f" COALESCE(SUM(CASE WHEN kind = 'video' AND {live} THEN size END), 0) AS video_bytes,"
+            f" COALESCE(SUM(favorite AND {live}), 0) AS favorites,"
+            f" COALESCE(SUM(latitude IS NOT NULL AND {live}), 0) AS with_location,"
+            f" COALESCE(SUM(description != '' AND {live}), 0) AS described,"
+            " COALESCE(SUM(deleted_at IS NOT NULL), 0) AS trash,"
+            " COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN size END), 0) AS trash_bytes,"
+            f" MIN(CASE WHEN {live} THEN taken_at END) AS oldest,"
+            f" MAX(CASE WHEN {live} THEN taken_at END) AS newest"
+            " FROM media"
+        ).fetchone()
+    )
+    totals["in_albums"] = conn.execute(
+        "SELECT COUNT(DISTINCT am.media_id) FROM album_media am "
+        "JOIN media m ON m.id = am.media_id WHERE m.deleted_at IS NULL"
+    ).fetchone()[0]
+    totals["albums"] = conn.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
+    totals["tags"] = conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
+    totals["tagged"] = conn.execute(
+        "SELECT COUNT(DISTINCT mt.media_id) FROM media_tags mt "
+        "JOIN media m ON m.id = mt.media_id WHERE m.deleted_at IS NULL"
+    ).fetchone()[0]
+
+    def rows(sql: str) -> list[dict[str, Any]]:
+        return [dict(r) for r in conn.execute(sql)]
+
+    return {
+        "totals": totals,
+        "by_year": rows(
+            "SELECT substr(taken_at, 1, 4) AS year, SUM(kind = 'image') AS photos, "
+            f"SUM(kind = 'video') AS videos, SUM(size) AS bytes FROM media WHERE {live} "
+            "GROUP BY year ORDER BY year"
+        ),
+        "by_type": rows(
+            f"SELECT mime, kind, COUNT(*) AS count, SUM(size) AS bytes FROM media WHERE {live} "
+            "GROUP BY mime ORDER BY count DESC"
+        ),
+        "cameras": rows(
+            "SELECT TRIM(COALESCE(camera_make, '') || ' ' || COALESCE(camera_model, '')) "
+            "AS camera, "
+            f"COUNT(*) AS count FROM media WHERE {live} AND camera_model IS NOT NULL "
+            "GROUP BY camera ORDER BY count DESC LIMIT 8"
+        ),
+        "date_sources": rows(
+            f"SELECT taken_at_source AS source, COUNT(*) AS count FROM media WHERE {live} "
+            "GROUP BY source ORDER BY count DESC"
+        ),
+    }
