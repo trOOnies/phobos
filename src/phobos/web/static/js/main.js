@@ -133,7 +133,7 @@ function makeGrid(filter, empty, ctx) {
 
 const searchMeta = (filter) => (filter.q ? `matching “${filter.q}”` : "");
 
-async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false }) {
+async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false, onTotal }) {
   // Wrapped so the message can change once we know whether albums hold everything.
   const emptyBox = h("div", {}, empty);
   const grid = makeGrid(filter, emptyBox, ctx);
@@ -159,6 +159,7 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null,
   const hidden = inAlbums?.reduce((s, t) => s + t.count, 0) ?? 0;
   meta.textContent = [plural(total, "item"), searchMeta(filter)].filter(Boolean).join(" ")
     + (hidden ? ` · ${hidden.toLocaleString()} more in albums` : "");
+  onTotal?.(total);
   if (!total && hidden) {
     emptyBox.replaceChildren(emptyState("album", `Everything here is in an album. Turn on “Show items in albums” to see ${hidden === 1 ? "it" : "them"} here too.`));
   }
@@ -243,7 +244,7 @@ function buildRail(rail, timeline, onJump) {
 async function trashView(search) {
   const filter = { trash: true, ...search };
   const empty = button("Empty trash", {
-    cls: "btn danger", icon: "trash",
+    cls: "btn danger", icon: "trash", disabled: true, // enabled once we know there's something in it
     onclick: async () => {
       if (!(await confirmDialog({ title: "Empty trash?", message: "Everything in the trash will be permanently deleted from disk. This can't be undone.", confirm: "Delete forever", danger: true }))) return;
       try {
@@ -253,8 +254,17 @@ async function trashView(search) {
       } catch (err) { toastError(err); }
     },
   });
+  // A search narrows the list but "Empty trash" deletes everything, so ask the server.
+  const syncEmpty = async () => {
+    try {
+      const { stats } = await api.get("/api/info");
+      empty.disabled = !stats.trash;
+      empty.title = stats.trash ? "" : "The trash is already empty";
+    } catch { /* leave it as it was */ }
+  };
+  current.afterRemove = syncEmpty;
   await libraryView({
-    title: "Trash", filter, ctx: "trash", empty: emptyState("trash", "Trash is empty."),
+    title: "Trash", filter, ctx: "trash", empty: emptyState("trash", "Trash is empty."), onTotal: syncEmpty,
     extra: h("div.notice", {}, h("span", { text: "Items stay here until you delete them. Their files keep using disk space until then." }), empty),
   });
 }
@@ -357,6 +367,7 @@ function updateSelectionBar(grid) {
         const sel = ids();
         await api.action(sel, "restore");
         grid.remove(sel);
+        current.afterRemove?.();
         toast(`Restored ${plural(sel.length, "item")}`);
       }) }),
       button("Delete forever", { cls: "btn danger", icon: "trash", onclick: () => run(async () => {
@@ -364,6 +375,7 @@ function updateSelectionBar(grid) {
         if (!(await confirmDialog({ title: `Permanently delete ${plural(sel.length, "item")}?`, message: "The files are removed from disk. This can't be undone.", confirm: "Delete forever", danger: true }))) return;
         await api.action(sel, "purge");
         grid.remove(sel);
+        current.afterRemove?.();
       }) }),
     );
   } else {
@@ -470,7 +482,7 @@ const viewer = new Viewer({
     if (grid === current.grid && current.ctx === "favorites" && !item.favorite) return; // keep it while viewing; gone on next load
     grid.update(item);
   },
-  onRemove: (ids, grid) => grid?.remove(ids),
+  onRemove: (ids, grid) => { grid?.remove(ids); if (grid === current.grid) current.afterRemove?.(); },
   onRestore: (ids) => restore(ids),
 });
 
