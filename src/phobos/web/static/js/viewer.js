@@ -220,7 +220,7 @@ export class Viewer {
     });
     const tagChips = tags.map((t) =>
       h("span.chip", {},
-        h("a", { href: `#/photos?tag=${encodeURIComponent(t)}`, text: t, onclick: () => this.dialog.close() }),
+        h("a", { href: `#/library?tag=${encodeURIComponent(t)}`, text: t, onclick: () => this.dialog.close() }),
         h("button", { type: "button", "aria-label": `Remove tag ${t}`, onclick: () => save({ tags: tags.filter((x) => x !== t) }) }, icon("close"))));
 
     const albums = (this.detail?.albums ?? []).map((a) =>

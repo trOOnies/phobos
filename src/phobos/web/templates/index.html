@@ -38,13 +38,12 @@
   </svg>
 
   <header class="topbar">
-    <a class="brand" href="#/photos" aria-label="Phobos home">
+    <a class="brand" href="#/library" aria-label="Phobos home">
       <img src="/static/favicon.svg" alt="" width="26" height="26"><span>Phobos</span>
     </a>
     <nav class="nav" aria-label="Sections">
-      <a href="#/photos" data-nav="photos"><svg><use href="#i-photos"/></svg><span>Photos</span></a>
+      <a href="#/library" data-nav="library"><svg><use href="#i-photos"/></svg><span>Library</span></a>
       <a href="#/favorites" data-nav="favorites"><svg><use href="#i-heart"/></svg><span>Favorites</span></a>
-      <a href="#/videos" data-nav="videos"><svg><use href="#i-video"/></svg><span>Videos</span></a>
       <a href="#/albums" data-nav="albums"><svg><use href="#i-album"/></svg><span>Albums</span></a>
       <a href="#/trash" data-nav="trash"><svg><use href="#i-trash"/></svg><span>Trash</span></a>
       <a href="#/help" data-nav="help"><svg><use href="#i-help"/></svg><span>Help</span></a>
@@ -181,7 +180,7 @@
             <li>Open <a href="#/import">Import</a> (top right).</li>
             <li>Click <strong>Choose folder</strong> and pick a folder with pictures, or paste its
               path from Windows Explorer. You can also drag photos straight onto the page.</li>
-            <li>That's it! Your photos appear under <a href="#/photos">Photos</a>, sorted by the date they were taken.</li>
+            <li>That's it! Your photos and videos appear under <a href="#/library">Library</a>, sorted by the date they were taken.</li>
           </ol>
           <p>Phobos <strong>copies</strong> your files &ndash; the originals are never moved or changed.
             If you import the same photo twice, Phobos notices and skips the copy.</p>
@@ -190,7 +189,8 @@
         <section class="card">
           <h2>Browsing</h2>
           <ul>
-            <li><strong>Photos</strong> shows your library, newest first. <strong>Videos</strong> shows only videos.</li>
+            <li><strong>Library</strong> shows your photos and videos, newest first. Use the
+              <strong>All / Photos / Videos</strong> switch at the top to see only one kind.</li>
             <li>Click any thumbnail to open it big. Use the arrow keys to move to the next or previous one.</li>
             <li>The years on the right let you jump back in time.</li>
             <li>The slider at the top changes the thumbnail size.</li>
@@ -201,11 +201,11 @@
           <h2>Albums</h2>
           <ul>
             <li>Select photos and click <strong>Add to album</strong> (or press <kbd>A</kbd> in the viewer).</li>
-            <li>Once something is in an album, it moves out of the <strong>Photos</strong> and
-              <strong>Videos</strong> tabs, so those only show what's still unsorted.</li>
-            <li>Want to see everything anyway? Turn on <strong>Show items in albums</strong> at the top of those tabs.</li>
+            <li>Once something is in an album, it moves out of the <strong>Library</strong> tab,
+              so the Library only shows what's still unsorted.</li>
+            <li>Want to see everything anyway? Turn on <strong>Show items in albums</strong> at the top of the Library.</li>
             <li>A photo can be in <strong>several albums</strong> at once. It's still a single file &ndash; no extra disk space used.</li>
-            <li>Deleting an album never deletes its photos: they go back to the Photos tab.</li>
+            <li>Deleting an album never deletes its photos: they go back to the Library.</li>
           </ul>
         </section>
 

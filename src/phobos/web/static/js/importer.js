@@ -105,7 +105,7 @@ class Uploader {
     if (s.duplicate) parts.push(`${s.duplicate} already in library`);
     if (s.error) parts.push(`${s.error} failed`);
     let action = {};
-    if (s.imported) action = { action: "View", onAction: () => { location.hash = "#/photos"; } };
+    if (s.imported) action = { action: "View", onAction: () => { location.hash = "#/library"; } };
     else if (s.duplicate && this.entry) {
       const entry = this.entry;
       action = { action: "Show duplicates", onAction: () => showDuplicates(entry) };

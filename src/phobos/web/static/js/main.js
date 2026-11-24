@@ -1,7 +1,8 @@
 // App shell: hash router, library/album/trash views, selection actions.
 //
-// Routes: #/photos  #/favorites  #/videos  #/albums  #/albums/<id>  #/trash  #/import  #/help
-// Grid routes accept ?q=<text>&tag=<name>.
+// Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/trash  #/import  #/help
+// Grid routes accept ?q=<text>&tag=<name>; the library also ?kind=image|video.
+// The old #/photos and #/videos routes still work (they open the library).
 
 import { api } from "./api.js";
 import { exitApp } from "./exit.js";
@@ -24,7 +25,7 @@ let current = { grid: null, ctx: null, disposers: [] };
 const app = new AbortController();
 const listen = (target, type, fn) => target.addEventListener(type, fn, { signal: app.signal });
 
-// Items that are in an album are left out of Photos and Videos unless this is on.
+// Items that are in an album are left out of the library unless this is on.
 const SHOW_ALBUM_ITEMS_KEY = "phobos.showAlbumItems";
 let showAlbumItems = false;
 try { showAlbumItems = localStorage.getItem(SHOW_ALBUM_ITEMS_KEY) === "1"; } catch { /* storage unavailable */ }
@@ -35,15 +36,25 @@ const albumScope = () => (showAlbumItems ? {} : { in_album: "false" });
 
 function parseRoute() {
   const [path, query = ""] = location.hash.replace(/^#/, "").split("?");
-  const [name = "photos", id] = path.split("/").filter(Boolean);
+  const [name = "library", id] = path.split("/").filter(Boolean);
   return { name, id, params: new URLSearchParams(query) };
+}
+
+/** #/photos and #/videos were separate tabs; send old links and bookmarks to the library. */
+function redirectLegacyRoute(route) {
+  if (route.name !== "photos" && route.name !== "videos") return route;
+  const params = new URLSearchParams(route.params);
+  if (route.name === "videos") params.set("kind", "video");
+  const q = params.toString();
+  history.replaceState(null, "", `#/library${q ? `?${q}` : ""}`);
+  return parseRoute();
 }
 
 function navigateWithParams(updates) {
   const r = parseRoute();
-  const grids = ["photos", "favorites", "videos", "trash", "albums"];
-  let path = grids.includes(r.name) ? `/${r.name}${r.id ? `/${r.id}` : ""}` : "/photos";
-  if (r.name === "albums" && !r.id) path = "/photos"; // searching from the album list searches photos
+  const grids = ["library", "favorites", "trash", "albums"];
+  let path = grids.includes(r.name) ? `/${r.name}${r.id ? `/${r.id}` : ""}` : "/library";
+  if (r.name === "albums" && !r.id) path = "/library"; // searching from the album list searches the library
   const params = new URLSearchParams(r.params);
   for (const [k, v] of Object.entries(updates)) v ? params.set(k, v) : params.delete(k);
   const q = params.toString();
@@ -60,7 +71,7 @@ function dispose() {
 
 async function render() {
   dispose();
-  const route = parseRoute();
+  const route = redirectLegacyRoute(parseRoute());
   searchInput.value = route.params.get("q") ?? "";
   for (const a of document.querySelectorAll("[data-nav]")) {
     const active = a.dataset.nav === route.name;
@@ -75,9 +86,6 @@ async function render() {
       case "favorites":
         return await libraryView({ title: "Favorites", filter: { favorite: true, q, tag }, ctx: "favorites",
           empty: emptyState("heart", searching ? "No matches." : "No favorites yet. Press F in the viewer or ♥ in the selection bar.") });
-      case "videos":
-        return await libraryView({ title: "Videos", filter: { kind: "video", q, tag, ...albumScope() }, ctx: "videos",
-          albumToggle: true, empty: emptyState("video", searching ? "No matches." : "No videos yet.") });
       case "trash":
         return await trashView({ q, tag });
       case "albums":
@@ -86,9 +94,13 @@ async function render() {
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
       case "help":
         return await helpView();
-      default:
-        return await libraryView({ title: tag ? `Tag: ${tag}` : "Photos", filter: { q, tag, ...albumScope() }, ctx: "photos",
-          albumToggle: true, empty: searching ? emptyState("search", "No matches.") : welcome() });
+      default: {
+        const kind = ["image", "video"].includes(route.params.get("kind")) ? route.params.get("kind") : undefined;
+        const nothing = kind === "video" ? emptyState("video", "No videos yet.")
+          : kind === "image" ? emptyState("photos", "No photos yet.") : welcome();
+        return await libraryView({ title: tag ? `Tag: ${tag}` : "Library", filter: { q, tag, kind, ...albumScope() }, ctx: "library",
+          albumToggle: true, kindFilter: true, empty: searching ? emptyState("search", "No matches.") : nothing });
+      }
     }
   } catch (err) {
     toastError(err);
@@ -121,7 +133,7 @@ function makeGrid(filter, empty, ctx) {
 
 const searchMeta = (filter) => (filter.q ? `matching “${filter.q}”` : "");
 
-async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false }) {
+async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false }) {
   // Wrapped so the message can change once we know whether albums hold everything.
   const emptyBox = h("div", {}, empty);
   const grid = makeGrid(filter, emptyBox, ctx);
@@ -132,7 +144,8 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null,
   const toggle = albumToggle ? albumItemsToggle() : null;
   const page = h("div.page.library", {},
     h("div", {},
-      h("div.page-head", {}, ...head, h("h1", { text: title }), meta, h("div.actions", {}, toggle, clear)),
+      h("div.page-head", {}, ...head, h("h1", { text: title }), meta,
+        h("div.actions", {}, kindFilter ? kindSwitch(filter.kind) : null, toggle, clear)),
       extra, banner, grid.el),
     rail);
   view.replaceChildren(page);
@@ -158,6 +171,19 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null,
     scrollTo({ top: 0 });
   });
   return grid;
+}
+
+/** All / Photos / Videos. The choice lives in the URL (?kind=), so it survives reloads. */
+function kindSwitch(kind) {
+  const options = [["", "All"], ["image", "Photos"], ["video", "Videos"]];
+  return h("fieldset.segmented", {},
+    h("legend.visually-hidden", { text: "Show" }),
+    options.map(([value, label]) => h("label", {},
+      h("input", {
+        type: "radio", name: "kind", value, checked: (kind ?? "") === value,
+        onchange: () => navigateWithParams({ kind: value }),
+      }),
+      h("span", { text: label }))));
 }
 
 function albumItemsToggle() {
@@ -358,8 +384,8 @@ function updateSelectionBar(grid) {
         const r = await api.action(sel, "add_to_album", { album_id: album.id });
         const msg = r.affected ? `Added ${plural(r.affected, "item")} to “${album.name}”` : `Already in “${album.name}”`;
         toast(msg, { action: "Open", onAction: () => { location.hash = `#/albums/${album.id}`; } });
-        // Photos/Videos only list items outside albums (unless the toggle is on).
-        if (["photos", "videos"].includes(current.ctx) && !showAlbumItems) grid.remove(sel);
+        // The library only lists items outside albums (unless the toggle is on).
+        if (current.ctx === "library" && !showAlbumItems) grid.remove(sel);
         else grid.clearSelection();
       }) }),
       button("Tag", { icon: "tag", onclick: () => run(async () => {
@@ -499,7 +525,7 @@ listen(window, "drop", async (e) => {
 });
 
 listen(window, "phobos:library-changed", () => {
-  if (["photos", "videos", "favorites"].includes(parseRoute().name) && !current.grid?.selecting) render();
+  if (["library", "photos", "videos", "favorites"].includes(parseRoute().name) && !current.grid?.selecting) render();
 });
 listen(window, "hashchange", render);
 // Other modules (e.g. the duplicates list) open items in the viewer with a grid-like list.
