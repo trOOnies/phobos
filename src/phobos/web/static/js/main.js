@@ -574,6 +574,8 @@ async function pickAlbum({ contains = [] } = {}) {
     h("span", {}, h("strong", { text: a.name }),
       h("small", { text: plural(a.count, "item") + (already.has(a.id) ? " · already in here" : "") })),
     already.has(a.id) ? icon("check") : null)));
+  // Roving tabindex: only one album is a Tab stop, so Tab jumps to the name field; arrows move between albums.
+  list.querySelectorAll("button").forEach((b, i) => { b.tabIndex = i ? -1 : 0; });
   if (!albums.length) list.append(h("p", { text: "No albums yet - create one below." }));
   const result = new Promise((resolve) => d.addEventListener("close", () => {
     const v = d.returnValue;
@@ -589,6 +591,21 @@ async function pickAlbum({ contains = [] } = {}) {
   // Typing the name of an existing album adds to it instead of creating a twin.
   return albums.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? api.post("/api/albums", { name });
 }
+
+listen(document.getElementById("album-choices"), "keydown", (e) => {
+  const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+  if (!step && e.key !== "Home" && e.key !== "End") return;
+  const buttons = [...e.currentTarget.querySelectorAll("button")];
+  const i = buttons.indexOf(e.target.closest("button"));
+  if (i < 0) return;
+  e.preventDefault(); // keep the list from scrolling on its own
+  const next = buttons[e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1
+    : Math.min(Math.max(i + step, 0), buttons.length - 1)];
+  buttons[i].tabIndex = -1;
+  next.tabIndex = 0;
+  next.focus();
+  next.scrollIntoView({ block: "nearest" });
+});
 
 // ------------------------------------------------------------------ viewer
 
