@@ -592,6 +592,14 @@ async function pickAlbum({ contains = [] } = {}) {
   return albums.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? api.post("/api/albums", { name });
 }
 
+// Enter in the name field would "submit" with the form's first submit button - the first album.
+// Create the album instead, and do nothing while the name is blank.
+listen(document.getElementById("album-new-name"), "keydown", (e) => {
+  if (e.key !== "Enter" || e.isComposing) return;
+  e.preventDefault();
+  if (e.currentTarget.value.trim()) document.getElementById("album-picker").close("new");
+});
+
 listen(document.getElementById("album-choices"), "keydown", (e) => {
   const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
   if (!step && e.key !== "Home" && e.key !== "End") return;
