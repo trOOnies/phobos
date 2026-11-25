@@ -1,7 +1,7 @@
 // App shell: hash router, library/album/trash views, selection actions.
 //
 // Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/people  #/people/<id>  #/trash
-//         #/import  #/metrics  #/help
+//         #/import  #/metrics  #/help  #/help/<topic>
 // Grid routes accept ?q=<text>&tag=<name>&country=<name>&city=<name>; the library also
 // ?kind=image|video.
 // The old #/photos and #/videos routes still work (they open the library).
@@ -104,7 +104,7 @@ async function render() {
       case "import":
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
       case "help":
-        return await helpView();
+        return await helpView(route.id);
       case "metrics":
         return await renderMetrics(view, { onDispose: (fn) => current.disposers.push(fn) });
       default: {
@@ -388,11 +388,32 @@ async function personView(personId, search) {
 
 // ------------------------------------------------------------------ help
 
-async function helpView() {
+/** One topic per page; the index on the left lists them all (#/help/<topic>). */
+async function helpView(topic) {
   const page = document.getElementById("help-template").content.cloneNode(true);
   page.querySelector('[data-help="url"]').textContent = location.origin;
   const lib = page.querySelector('[data-help="library"]');
+  const topics = [...page.querySelectorAll(".help-page")];
+  const idx = Math.max(0, topics.findIndex((t) => t.dataset.topic === topic));
+  const title = (t) => t.querySelector("h2").textContent;
+  const href = (t) => `#/help/${t.dataset.topic}`;
+  topics.forEach((t, i) => { t.hidden = i !== idx; });
+  page.querySelector("#help-index").replaceChildren(...topics.map((t, i) => h("li", {},
+    h("a", { href: href(t), text: title(t), "aria-current": i === idx ? "page" : null }))));
+  const prev = topics[idx - 1], next = topics[idx + 1];
+  page.querySelector(".help-pager").replaceChildren(
+    prev ? h("a.btn.pager-prev", { href: href(prev) }, icon("left"), h("span", {}, h("small", { text: "Previous" }), h("span", { text: title(prev) }))) : h("span"),
+    h("span.pager-count", { text: `${idx + 1} of ${topics.length}` }),
+    next ? h("a.btn.pager-next", { href: href(next) }, h("span", {}, h("small", { text: "Next" }), h("span", { text: title(next) })), icon("right")) : h("span"));
+  const heading = topics[idx].querySelector("h2");
   view.replaceChildren(page);
+  document.title = `${title(topics[idx])} · Help · Phobos`;
+  current.disposers.push(() => { document.title = "Phobos"; });
+  // Moving between topics: start at the top and put focus on the new topic.
+  if (topic) {
+    scrollTo({ top: 0 });
+    heading.focus({ preventScroll: true });
+  }
   try {
     const info = await api.get("/api/info");
     lib.textContent = info.library_dir_windows || info.library_dir;

@@ -231,145 +231,187 @@
     </form>
   </dialog>
 
-  <!-- Help page (rendered by #/help) -->
+  <!-- Help page (rendered by #/help/<topic>): one topic per page, the index on the left.
+       Each <section data-topic> is a page; the index and Previous / Next links are built from them. -->
   <template id="help-template">
     <div class="page help">
       <div class="page-head"><h1>Help</h1><span class="meta">Everything you need to know about Phobos</span></div>
-      <p class="help-intro">
-        Phobos keeps your photos and videos organised on your own computer. Nothing is uploaded
-        to the internet &ndash; it all stays with you.
-      </p>
-      <div class="help-grid">
-        <section class="card">
-          <h2>Getting started</h2>
-          <ol>
-            <li>Open <a href="#/import">Import</a> (top right).</li>
-            <li>Click <strong>Choose folder</strong> and pick a folder with pictures, or paste its
-              path from Windows Explorer. You can also drag photos straight onto the page.</li>
-            <li>That's it! Your photos and videos appear under <a href="#/library">Library</a>, sorted by the date they were taken.</li>
-          </ol>
-          <p>Phobos <strong>copies</strong> your files &ndash; the originals are never moved or changed.
-            If you import the same photo twice, Phobos notices and skips the copy.</p>
-        </section>
+      <div class="help-layout">
+        <nav class="help-index" aria-label="Help topics"><ol id="help-index"></ol></nav>
+        <div class="help-content">
+          <section class="card help-page" data-topic="getting-started">
+            <h2 tabindex="-1">Getting started</h2>
+            <p>Phobos keeps your photos and videos organised on your own computer. Nothing is uploaded
+              to the internet &ndash; it all stays with you.</p>
+            <ol>
+              <li>Open <a href="#/import">Import</a> (top right).</li>
+              <li>Click <strong>Choose folder</strong> and pick a folder with pictures, or paste its
+                path from Windows Explorer. You can also drag photos straight onto the page.</li>
+              <li>That's it! Your photos and videos appear under <a href="#/library">Library</a>, sorted by the date they were taken.</li>
+            </ol>
+            <p>Phobos <strong>copies</strong> your files &ndash; the originals are never moved or changed.
+              If you import the same photo twice, Phobos notices and skips the copy.</p>
+          </section>
 
-        <section class="card">
-          <h2>Browsing</h2>
-          <ul>
-            <li><strong>Library</strong> shows your photos and videos, newest first. Use the
-              <strong>All / Photos / Videos</strong> switch at the top to see only one kind.</li>
-            <li>Click any thumbnail to open it big. Use the arrow keys to move to the next or previous one.</li>
-            <li>The years on the right let you jump back in time.</li>
-            <li>The slider at the top changes the thumbnail size.</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="browsing">
+            <h2 tabindex="-1">Browsing</h2>
+            <ul>
+              <li><strong>Library</strong> shows your photos and videos, newest first. Use the
+                <strong>All / Photos / Videos</strong> switch at the top to see only one kind.</li>
+              <li>Click any thumbnail to open it big. Use the arrow keys to move to the next or previous one.</li>
+              <li>The years on the right let you jump back in time.</li>
+              <li>The slider at the top changes the thumbnail size.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Albums</h2>
-          <ul>
-            <li>Select photos and click <strong>Add to album</strong> (or press <kbd>A</kbd> in the viewer).</li>
-            <li>Once something is in an album, it moves out of the <strong>Library</strong> tab,
-              so the Library only shows what's still unsorted.</li>
-            <li>Want to see everything anyway? Turn on <strong>Show items in albums</strong> at the top of the Library.</li>
-            <li>A photo can be in <strong>several albums</strong> at once. It's still a single file &ndash; no extra disk space used.</li>
-            <li>Deleting an album never deletes its photos: they go back to the Library.</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="albums">
+            <h2 tabindex="-1">Albums</h2>
+            <ul>
+              <li>Select photos and click <strong>Add to album</strong> (or press <kbd>A</kbd> in the viewer).</li>
+              <li>Once something is in an album, it moves out of the <strong>Library</strong> tab,
+                so the Library only shows what's still unsorted.</li>
+              <li>Want to see everything anyway? Turn on <strong>Show items in albums</strong> at the top of the Library.</li>
+              <li>A photo can be in <strong>several albums</strong> at once. It's still a single file &ndash; no extra disk space used.</li>
+              <li>Deleting an album never deletes its photos: they go back to the Library.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Selecting several at once</h2>
-          <ul>
-            <li>Hover a thumbnail and click its round check mark, or hold <kbd>Ctrl</kbd> and click.</li>
-            <li>Hold <kbd>Shift</kbd> and click to select everything in between.</li>
-            <li>Use the bar at the top to favorite, tag, add to an album or move to the trash.</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="people">
+            <h2 tabindex="-1">People and pets</h2>
+            <p>Mark who is in a photo or video &ndash; family, friends, or a pet with a name &ndash;
+              and find all of their pictures in one place.</p>
+            <ul>
+              <li>Open a photo and press <kbd>P</kbd> (or the <strong>person</strong> button). Type a name
+                and press <kbd>Enter</kbd>. Someone new? Choose <strong>Person</strong> or <strong>Animal</strong>.</li>
+              <li>To tag many at once, select them and click <strong>People</strong> in the bar at the top.</li>
+              <li>Names can be anything you like: &ldquo;Grandma Rosa&rdquo;, &ldquo;Me&rdquo;, &ldquo;Rex&rdquo;&hellip;
+                Each name is used once, so you always get the same person.</li>
+              <li><a href="#/people">People</a> lists everyone with how many photos they're in. Open someone
+                to see their photos, rename them, or pick the photo shown on their card
+                (select it and click <strong>Use as photo</strong>).</li>
+              <li>Removing someone only forgets the name &ndash; their photos stay in your library.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Favorites, tags and search</h2>
-          <ul>
-            <li>Press the <strong>&hearts;</strong> (or <kbd>F</kbd> in the viewer) to keep your best shots under <a href="#/favorites">Favorites</a>.</li>
-            <li>Tags are little labels like &ldquo;birthday&rdquo; or &ldquo;grandma&rdquo;. Add them in the viewer's details panel (<kbd>I</kbd>).</li>
-            <li>The search box finds file names, descriptions, tags, camera models and dates (try &ldquo;2023-07&rdquo;).</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="places">
+            <h2 tabindex="-1">Places</h2>
+            <p>Phones save where a photo or video was taken. Phobos turns that into a place name &ndash;
+              city, region and country &ndash; so you can find your pictures from a trip.</p>
+            <ul>
+              <li>Use the <strong>place</strong> menu at the top of the Library, Favorites, an album or a
+                person to show only one country or city.</li>
+              <li>You can also type a place in the search box, like &ldquo;Paris&rdquo; or &ldquo;Argentina&rdquo;.</li>
+              <li>The place is shown in the viewer's details (<kbd>I</kbd>). Click it to see everything from there.</li>
+              <li>No place, or a wrong one? Click <strong>Change</strong> in the details, or select several
+                photos and click <strong>Place</strong>. <strong>Use GPS place</strong> goes back to the automatic one.</li>
+              <li>Place names are looked up on your computer with a built-in list of towns: your
+                locations are never sent anywhere. The nearest town is used, so a photo taken in
+                a small village may show the town next to it.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Fixing a wrong date</h2>
-          <p>Some photos (screenshots, messages from chat apps) don't remember when they were taken.
-            Open the photo, press <kbd>I</kbd> for details and change <strong>Date &amp; time</strong>.
-            It moves to the right place in the timeline straight away.</p>
-        </section>
+          <section class="card help-page" data-topic="selecting">
+            <h2 tabindex="-1">Selecting several at once</h2>
+            <ul>
+              <li>Hover a thumbnail and click its round check mark, or hold <kbd>Ctrl</kbd> and click.</li>
+              <li>Hold <kbd>Shift</kbd> and click to select everything in between.</li>
+              <li>Use the bar at the top to favorite, tag, add people or a place, add to an album or move to the trash.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Cropping a photo</h2>
-          <ul>
-            <li>Open a photo and click the <strong>crop</strong> button (or press <kbd>E</kbd>).</li>
-            <li>Drag the box or its corners, or pick a shape like <strong>Square</strong> or <strong>16:9</strong>.
-              <strong>Trim black borders</strong> finds the picture inside a black screenshot background for you.</li>
-            <li><strong>Save</strong> keeps the cropped photo and puts the original in the Trash, just in case.
-              <strong>Save as copy</strong> keeps both.</li>
-            <li>The cropped photo keeps its date, description, tags, albums and favorite.</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="search">
+            <h2 tabindex="-1">Favorites, tags and search</h2>
+            <ul>
+              <li>Press the <strong>&hearts;</strong> (or <kbd>F</kbd> in the viewer) to keep your best shots under <a href="#/favorites">Favorites</a>.</li>
+              <li>Tags are little labels like &ldquo;birthday&rdquo; or &ldquo;beach&rdquo;. Add them in the viewer's details panel (<kbd>I</kbd>).</li>
+              <li>The search box finds file names, descriptions, places, people and pets, tags,
+                camera models and dates (try &ldquo;2023-07&rdquo;).</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Metrics and cleanup</h2>
-          <ul>
-            <li><a href="#/metrics">Metrics</a> shows how big your library is, how it grew over the
-              years, which file types and cameras you have, and more.</li>
-            <li><strong>Clean up</strong> lists things you may not want to keep: photos with black
-              borders you can crop, blank or broken shots, empty or very small files, tiny
-              pictures, accidental short videos and the biggest files.</li>
-            <li>Nothing is deleted straight away: whatever you remove goes to the Trash first.</li>
-          </ul>
-        </section>
+          <section class="card help-page" data-topic="dates">
+            <h2 tabindex="-1">Fixing a wrong date</h2>
+            <p>Some photos (screenshots, messages from chat apps) don't remember when they were taken.
+              Open the photo, press <kbd>I</kbd> for details and change <strong>Date &amp; time</strong>.
+              It moves to the right place in the timeline straight away.</p>
+          </section>
 
-        <section class="card">
-          <h2>Trash</h2>
-          <p>Deleted items wait in the <a href="#/trash">Trash</a> until you empty it, so you can always
-            change your mind and <strong>Restore</strong> them. Emptying the trash removes the files for good.</p>
-        </section>
+          <section class="card help-page" data-topic="cropping">
+            <h2 tabindex="-1">Cropping a photo</h2>
+            <ul>
+              <li>Open a photo and click the <strong>crop</strong> button (or press <kbd>E</kbd>).</li>
+              <li>Drag the box or its corners, or pick a shape like <strong>Square</strong> or <strong>16:9</strong>.
+                <strong>Trim black borders</strong> finds the picture inside a black screenshot background for you.</li>
+              <li><strong>Save</strong> keeps the cropped photo and puts the original in the Trash, just in case.
+                <strong>Save as copy</strong> keeps both.</li>
+              <li>The cropped photo keeps its date, description, place, people, tags, albums and favorite.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Where are my files?</h2>
-          <p>Your library is kept in plain folders by year and month, so you can always open it
-            without Phobos:</p>
-          <p><code class="path" data-help="library">&hellip;</code></p>
-          <p>Albums, tags and favorites live in Phobos' database. To keep a backup, copy the library
-            folder and run <code class="path">phobos backup-db</code>.</p>
-        </section>
+          <section class="card help-page" data-topic="metrics">
+            <h2 tabindex="-1">Metrics and cleanup</h2>
+            <ul>
+              <li><a href="#/metrics">Metrics</a> shows how big your library is, how it grew over the
+                years, where your photos were taken, which file types and cameras you have, and more.</li>
+              <li><strong>Clean up</strong> lists things you may not want to keep: photos with black
+                borders you can crop, blank or broken shots, empty or very small files, tiny
+                pictures, accidental short videos and the biggest files.</li>
+              <li>Nothing is deleted straight away: whatever you remove goes to the Trash first.</li>
+            </ul>
+          </section>
 
-        <section class="card">
-          <h2>Keyboard shortcuts</h2>
-          <dl class="kv keys">
-            <dt><kbd>/</kbd></dt><dd>Search</dd>
-            <dt><kbd>Ctrl</kbd> <kbd>A</kbd></dt><dd>Select everything loaded</dd>
-            <dt><kbd>Esc</kbd></dt><dd>Clear the selection / close the viewer</dd>
-            <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next in the viewer</dd>
-            <dt><kbd>F</kbd></dt><dd>Favorite</dd>
-            <dt><kbd>I</kbd></dt><dd>Show details</dd>
-            <dt><kbd>A</kbd></dt><dd>Add to album</dd>
-            <dt><kbd>E</kbd></dt><dd>Crop the photo</dd>
-            <dt><kbd>Del</kbd></dt><dd>Move to trash</dd>
-          </dl>
-        </section>
+          <section class="card help-page" data-topic="trash">
+            <h2 tabindex="-1">Trash</h2>
+            <p>Deleted items wait in the <a href="#/trash">Trash</a> until you empty it, so you can always
+              change your mind and <strong>Restore</strong> them. Emptying the trash removes the files for good.</p>
+          </section>
 
-        <section class="card">
-          <h2>Closing Phobos</h2>
-          <p>Click the <strong>door</strong> in the top right corner and confirm. Phobos stops
-            and you can close the tab. To come back, run <code class="path">phobos-web</code>
-            (or <code class="path">make serve</code>) and open
-            <code class="path" data-help="url">http://localhost:8005</code> again.</p>
-        </section>
+          <section class="card help-page" data-topic="files">
+            <h2 tabindex="-1">Where are my files?</h2>
+            <p>Your library is kept in plain folders by year and month, so you can always open it
+              without Phobos:</p>
+            <p><code class="path" data-help="library">&hellip;</code></p>
+            <p>Albums, people, places, tags and favorites live in Phobos' database. To keep a backup,
+              copy the library folder and run <code class="path">phobos backup-db</code>.</p>
+          </section>
 
-        <section class="card">
-          <h2>About Phobos</h2>
-          <p>Phobos is free and open source. Its code, updates and a place to report problems
-            or suggest ideas are on GitHub:</p>
-          <p><a href="https://github.com/trOOnies/phobos" target="_blank" rel="noopener noreferrer">github.com/trOOnies/phobos</a></p>
-          <p>It's licensed under the <strong>GNU General Public License v3.0</strong>: you can use,
-            study, share and change it, as long as shared versions stay under the same license.</p>
-        </section>
+          <section class="card help-page" data-topic="shortcuts">
+            <h2 tabindex="-1">Keyboard shortcuts</h2>
+            <dl class="kv keys">
+              <dt><kbd>/</kbd></dt><dd>Search</dd>
+              <dt><kbd>Ctrl</kbd> <kbd>A</kbd></dt><dd>Select everything loaded</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Clear the selection / close the viewer</dd>
+              <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next in the viewer</dd>
+              <dt><kbd>F</kbd></dt><dd>Favorite</dd>
+              <dt><kbd>I</kbd></dt><dd>Show details</dd>
+              <dt><kbd>P</kbd></dt><dd>Tag people and pets</dd>
+              <dt><kbd>A</kbd></dt><dd>Add to album</dd>
+              <dt><kbd>E</kbd></dt><dd>Crop the photo</dd>
+              <dt><kbd>Del</kbd></dt><dd>Move to trash</dd>
+            </dl>
+          </section>
+
+          <section class="card help-page" data-topic="closing">
+            <h2 tabindex="-1">Closing Phobos</h2>
+            <p>Click the <strong>door</strong> in the top right corner and confirm. Phobos stops
+              and you can close the tab. To come back, run <code class="path">phobos-web</code>
+              (or <code class="path">make serve</code>) and open
+              <code class="path" data-help="url">http://localhost:8005</code> again.</p>
+          </section>
+
+          <section class="card help-page" data-topic="about">
+            <h2 tabindex="-1">About Phobos</h2>
+            <p>Phobos is free and open source. Its code, updates and a place to report problems
+              or suggest ideas are on GitHub:</p>
+            <p><a href="https://github.com/trOOnies/phobos" target="_blank" rel="noopener noreferrer">github.com/trOOnies/phobos</a></p>
+            <p>It's licensed under the <strong>GNU General Public License v3.0</strong>: you can use,
+              study, share and change it, as long as shared versions stay under the same license.</p>
+            <p>Place names come from <a href="https://www.geonames.org" target="_blank" rel="noopener noreferrer">GeoNames</a>,
+              used under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a> license.</p>
+          </section>
+
+          <nav class="help-pager" aria-label="Previous and next topic"></nav>
+        </div>
       </div>
       <footer class="site-footer">
         <p>&copy; 2026 Phobos by trOOnies</p>
