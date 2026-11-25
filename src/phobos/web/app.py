@@ -60,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         library = Library(settings)
         app.state.library = library
         app.state.jobs = JobManager(library)
+        app.state.jobs.fill_places()
         with library.conn() as conn:
             if stale := repo.interrupt_unfinished_imports(conn):
                 log.info("marked %d unfinished import(s) from a previous run as interrupted", stale)

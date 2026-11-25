@@ -26,7 +26,11 @@ Your original files are never moved or changed. Phobos keeps its own organised c
 - ❤️ **Favorites, albums and tags**: keep your best shots handy and group trips, birthdays or
   anything you like. A photo can be in several albums without taking up extra space, and
   once it's in an album it leaves the main Library so you can see what's left to sort.
-- 🔎 **Search** by file name, description, tag, camera or date (try `2023-07`).
+- 📍 **Places**: photos and videos with GPS get a place name (city, region, country), looked
+  up on your own computer. Show only one country or city, or type a place in by hand.
+- 🧑‍🤝‍🧑 **People & pets**: mark who is in a photo or video – any name you like, for people
+  or animals – and see all of their pictures together.
+- 🔎 **Search** by file name, description, place, person, tag, camera or date (try `2023-07`).
 - ✂️ **Crop photos**: drag a box, pick a shape like Square or 16:9, or let Phobos trim the
   black borders around screenshots for you. Your original is kept in the Trash, just in case.
 - 📊 **Metrics and cleanup**: see how big your library is and how it grew over the years, and
@@ -111,7 +115,7 @@ live in the database, so do back it up.
 | Where | Keys |
 |-------|------|
 | Library | `/` search · `Ctrl`+click or `Shift`+click to select · `Ctrl+A` select all · `Esc` clear |
-| Viewer | `←` `→` previous / next · `F` favorite · `I` details · `A` add to album · `E` crop · `Del` trash · `Esc` close |
+| Viewer | `←` `→` previous / next · `F` favorite · `I` details · `P` people & pets · `A` add to album · `E` crop · `Del` trash · `Esc` close |
 
 ## Settings
 
@@ -134,7 +138,8 @@ phobos backup-db DEST
 
 Phobos only listens on your own computer (`127.0.0.1`), so other devices can't reach it.
 It also refuses requests that other websites open in your browser try to send it. Your
-pictures are never uploaded anywhere.
+pictures are never uploaded anywhere, and place names are looked up offline with a
+built-in list of towns, so your locations never leave your computer either.
 
 ## For the curious: how it's built
 
@@ -148,13 +153,17 @@ pictures are never uploaded anywhere.
 - **Duplicates** are spotted by content (SHA-256), so renamed copies are caught too.
 - **Previews** are made on demand, so HEIC and TIFF show in any browser. Videos stream with
   seeking; formats the browser can't play offer a download instead.
+- **Places** come from a bundled list of ~65,000 towns
+  ([GeoNames](https://www.geonames.org), CC BY 4.0; rebuild it with `scripts/build_places.py`).
+  The nearest town within 100 km is used.
 - **Edits** write a new file. The original is only moved to the Trash if you choose to.
 
 ```
 src/phobos/
   config.py     settings (YAML + environment)
   db.py         SQLite connection, schema migrations, backup
-  repo.py       queries (media, albums, tags, timeline, metrics, cleanup)
+  repo.py       queries (media, albums, tags, people, places, timeline, metrics, cleanup)
+  places.py     offline GPS -> city / region / country lookup (data/ holds the town list)
   metadata.py   EXIF / video / file name date extraction
   thumbs.py     thumbnails and previews (WebP cache keyed by content hash)
   analysis.py   black-border and blank-shot detection for the cleanup tool

@@ -111,6 +111,30 @@ MIGRATIONS: list[str] = [
         analyzed_at TEXT NOT NULL
     );
     """,
+    # 4 - place names (from GPS via the offline gazetteer, or typed in) and people & pets
+    """
+    ALTER TABLE media ADD COLUMN city TEXT;
+    ALTER TABLE media ADD COLUMN region TEXT;
+    ALTER TABLE media ADD COLUMN country TEXT;
+    -- gps: looked up from the coordinates (all three NULL when nowhere near a town)
+    -- manual: typed in by the user, never overwritten by a lookup, NULL: not looked up yet
+    ALTER TABLE media ADD COLUMN place_source TEXT;
+    CREATE INDEX media_place ON media (country, city) WHERE deleted_at IS NULL;
+
+    CREATE TABLE people (
+        id             INTEGER PRIMARY KEY,
+        name           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        kind           TEXT NOT NULL DEFAULT 'person' CHECK (kind IN ('person', 'animal')),
+        cover_media_id INTEGER REFERENCES media (id) ON DELETE SET NULL,
+        created_at     TEXT NOT NULL
+    );
+    CREATE TABLE media_people (
+        media_id  INTEGER NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+        person_id INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+        PRIMARY KEY (media_id, person_id)
+    );
+    CREATE INDEX media_people_person ON media_people (person_id);
+    """,
 ]
 
 

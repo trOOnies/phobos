@@ -1,7 +1,9 @@
 // App shell: hash router, library/album/trash views, selection actions.
 //
-// Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/trash  #/import  #/metrics  #/help
-// Grid routes accept ?q=<text>&tag=<name>; the library also ?kind=image|video.
+// Routes: #/library  #/favorites  #/albums  #/albums/<id>  #/people  #/people/<id>  #/trash
+//         #/import  #/metrics  #/help
+// Grid routes accept ?q=<text>&tag=<name>&country=<name>&city=<name>; the library also
+// ?kind=image|video.
 // The old #/photos and #/videos routes still work (they open the library).
 
 import { api } from "./api.js";
@@ -9,6 +11,8 @@ import { exitApp } from "./exit.js";
 import { MediaGrid } from "./grid.js";
 import { filesFromDrop, renderImport, uploader } from "./importer.js";
 import { renderMetrics } from "./metrics.js";
+import { invalidatePeople, kindIcon, kindLabel, personForm, pickPerson, renderPeople } from "./people.js";
+import { editPlace, invalidatePlaces, placeFilter, shortPlace } from "./places.js";
 import {
   button, confirmDialog, debounce, formatMonth, formatShortMonth, h, icon, plural, promptDialog,
   toast, toastError,
@@ -53,9 +57,10 @@ function redirectLegacyRoute(route) {
 
 function navigateWithParams(updates) {
   const r = parseRoute();
-  const grids = ["library", "favorites", "trash", "albums"];
+  const grids = ["library", "favorites", "trash", "albums", "people"];
   let path = grids.includes(r.name) ? `/${r.name}${r.id ? `/${r.id}` : ""}` : "/library";
-  if (r.name === "albums" && !r.id) path = "/library"; // searching from the album list searches the library
+  // Searching from the album or people list searches the library.
+  if ((r.name === "albums" || r.name === "people") && !r.id) path = "/library";
   const params = new URLSearchParams(r.params);
   for (const [k, v] of Object.entries(updates)) v ? params.set(k, v) : params.delete(k);
   const q = params.toString();
@@ -81,16 +86,21 @@ async function render() {
   }
   const q = route.params.get("q") || undefined;
   const tag = route.params.get("tag") || undefined;
-  const searching = q || tag;
+  const country = route.params.get("country") || undefined;
+  const city = route.params.get("city") || undefined;
+  const search = { q, tag, country, city };
+  const searching = q || tag || country || city;
   try {
     switch (route.name) {
       case "favorites":
-        return await libraryView({ title: "Favorites", filter: { favorite: true, q, tag }, ctx: "favorites",
+        return await libraryView({ title: "Favorites", filter: { favorite: true, ...search }, ctx: "favorites", places: true,
           empty: emptyState("heart", searching ? "No matches." : "No favorites yet. Press F in the viewer or ♥ in the selection bar.") });
       case "trash":
         return await trashView({ q, tag });
       case "albums":
-        return route.id ? await albumView(Number(route.id), { q, tag }) : await albumsView();
+        return route.id ? await albumView(Number(route.id), search) : await albumsView();
+      case "people":
+        return route.id ? await personView(Number(route.id), search) : await renderPeople(view);
       case "import":
         return renderImport(view, { onDispose: (fn) => current.disposers.push(fn) });
       case "help":
@@ -101,8 +111,8 @@ async function render() {
         const kind = ["image", "video"].includes(route.params.get("kind")) ? route.params.get("kind") : undefined;
         const nothing = kind === "video" ? emptyState("video", "No videos yet.")
           : kind === "image" ? emptyState("photos", "No photos yet.") : welcome();
-        return await libraryView({ title: tag ? `Tag: ${tag}` : "Library", filter: { q, tag, kind, ...albumScope() }, ctx: "library",
-          albumToggle: true, kindFilter: true, empty: searching ? emptyState("search", "No matches.") : nothing });
+        return await libraryView({ title: tag ? `Tag: ${tag}` : "Library", filter: { ...search, kind, ...albumScope() }, ctx: "library",
+          albumToggle: true, kindFilter: true, places: true, empty: searching ? emptyState("search", "No matches.") : nothing });
       }
     }
   } catch (err) {
@@ -134,9 +144,12 @@ function makeGrid(filter, empty, ctx) {
   return grid;
 }
 
-const searchMeta = (filter) => (filter.q ? `matching “${filter.q}”` : "");
+const searchMeta = (filter) => [
+  filter.q ? `matching “${filter.q}”` : "",
+  filter.country || filter.city ? `in ${shortPlace(filter)}` : "",
+].filter(Boolean).join(" ");
 
-async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false, onTotal }) {
+async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false, places = false, onTotal }) {
   // Wrapped so the message can change once we know whether albums hold everything.
   const emptyBox = h("div", {}, empty);
   const grid = makeGrid(filter, emptyBox, ctx);
@@ -148,7 +161,8 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null,
   const page = h("div.page.library", {},
     h("div", {},
       h("div.page-head", {}, ...head, h("h1", { text: title }), meta,
-        h("div.actions", {}, kindFilter ? kindSwitch(filter.kind) : null, toggle, clear)),
+        h("div.actions", {}, kindFilter ? kindSwitch(filter.kind) : null,
+          places ? placeFilter(filter, (p) => navigateWithParams(p)) : null, toggle, clear)),
       extra, banner, grid.el),
     rail);
   view.replaceChildren(page);
@@ -335,6 +349,43 @@ function yearRange(a) {
   return y1 === y2 ? y1 : `${y1}–${y2}`;
 }
 
+async function personView(personId, search) {
+  const person = await api.get(`/api/people/${personId}`);
+  const back = h("a.icon-btn", { href: "#/people", "aria-label": "Everyone", title: "Everyone" }, icon("left"));
+  const kind = h("span.kind-pill", {}, icon(kindIcon(person.kind)), h("span", { text: kindLabel(person.kind) }));
+  const edit = button("Edit", {
+    icon: "edit",
+    onclick: async () => {
+      const form = await personForm({ title: `Edit ${person.name}`, name: person.name, kind: person.kind });
+      if (!form) return;
+      try {
+        await api.patch(`/api/people/${personId}`, form);
+        invalidatePeople();
+        render();
+      } catch (err) { toastError(err); }
+    },
+  });
+  const del = button("Remove", {
+    icon: "trash",
+    onclick: async () => {
+      if (!(await confirmDialog({ title: `Remove “${person.name}”?`, message: "Phobos forgets the name. The photos and videos stay in your library.", confirm: "Remove", danger: true }))) return;
+      try {
+        await api.del(`/api/people/${personId}`);
+        invalidatePeople();
+        location.hash = "#/people";
+      } catch (err) { toastError(err); }
+    },
+  });
+  await libraryView({
+    title: person.name, filter: { person: personId, ...search }, ctx: "person", places: true,
+    head: [back],
+    empty: search.q || search.tag || search.country || search.city ? emptyState("search", "No matches.")
+      : emptyState(kindIcon(person.kind), `No photos of ${person.name} yet. Open a photo and press P, or select photos in the library and choose “People”.`),
+    extra: h("div.row", { style: "margin-bottom:14px" }, kind, edit, del),
+  });
+  current.person = person;
+}
+
 // ------------------------------------------------------------------ help
 
 async function helpView() {
@@ -410,7 +461,49 @@ function updateSelectionBar(grid) {
         toast(`Tagged ${plural(grid.selected.size, "item")} “${tag}”`);
         grid.clearSelection();
       }) }),
+      button("People", { icon: "person", title: "Tag a person or pet in these", onclick: () => run(async () => {
+        const sel = ids();
+        const contains = current.ctx === "person" && current.person ? [current.person.id] : [];
+        const person = await pickPerson({ count: sel.length, contains });
+        invalidatePeople();
+        if (!person) return;
+        const r = await api.action(sel, "add_person", { person_id: person.id });
+        const msg = r.affected ? `Tagged ${person.name} in ${plural(r.affected, "item")}` : `${person.name} was already tagged`;
+        toast(msg, { action: "Open", onAction: () => { location.hash = `#/people/${person.id}`; } });
+        grid.clearSelection();
+      }) }),
+      button("Place", { icon: "pin", title: "Set where these were taken", onclick: () => run(async () => {
+        const sel = ids();
+        const first = items()[0] ?? {};
+        const shared = items().every((i) => i.country === first.country && i.city === first.city);
+        const answer = await editPlace({
+          title: sel.length === 1 ? "Where was this taken?" : `Where were these ${sel.length.toLocaleString()} taken?`,
+          current: shared ? first : {},
+          canReset: items().some((i) => i.place_source === "manual"),
+        });
+        if (!answer) return;
+        const r = answer.reset ? await api.action(sel, "reset_place") : await api.action(sel, "set_place", { place: answer.place });
+        invalidatePlaces();
+        toast(answer.reset ? `Back to the GPS place for ${plural(r.affected, "item")}` : `Place set for ${plural(r.affected, "item")}`);
+        render(); // filters and the place menu change
+      }) }),
     );
+    if (current.ctx === "person" && current.person) {
+      const person = current.person;
+      if (n === 1) {
+        actions.push(button("Use as photo", { icon: "image", title: `Show this on ${person.name}'s card`, onclick: () => run(async () => {
+          await api.patch(`/api/people/${person.id}`, { cover_media_id: ids()[0] });
+          invalidatePeople();
+          toast(`${person.name}'s photo updated`);
+          grid.clearSelection();
+        }) }));
+      }
+      actions.push(button(`Not ${person.name}`, { icon: "close", title: `${person.name} isn't in these`, onclick: () => run(async () => {
+        const sel = ids();
+        await api.action(sel, "remove_person", { person_id: person.id });
+        grid.remove(sel);
+      }) }));
+    }
     if (current.ctx === "album" && current.album) {
       const album = current.album;
       if (n === 1) {
@@ -540,6 +633,7 @@ listen(window, "drop", async (e) => {
 });
 
 listen(window, "phobos:library-changed", () => {
+  invalidatePlaces(); // new imports may come from new places
   if (["library", "photos", "videos", "favorites"].includes(parseRoute().name) && !current.grid?.selecting) render();
 });
 listen(window, "hashchange", render);

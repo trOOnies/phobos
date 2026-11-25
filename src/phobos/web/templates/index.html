@@ -36,6 +36,10 @@
     <symbol id="i-door" viewBox="0 0 24 24"><path d="M3 21h18M13 3h5v18"/><path d="M13 3 6 5v15l7 1z"/><path d="M8.6 12.5v.01"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/></symbol>
     <symbol id="i-crop" viewBox="0 0 24 24"><path d="M7 3v12a2 2 0 0 0 2 2h12M3 7h12a2 2 0 0 1 2 2v12"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M15.5 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24"><ellipse cx="6" cy="11" rx="1.8" ry="2.3"/><ellipse cx="9.6" cy="6.6" rx="1.8" ry="2.4"/><ellipse cx="14.4" cy="6.6" rx="1.8" ry="2.4"/><ellipse cx="18" cy="11" rx="1.8" ry="2.3"/><path d="M12 12.5c-2.6 0-5 3.2-5 5.4 0 1.5 1.2 2.3 2.6 2.1 1-.1 1.6-.6 2.4-.6s1.4.5 2.4.6c1.4.2 2.6-.6 2.6-2.1 0-2.2-2.4-5.4-5-5.4z"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
     <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.6M12 17v.01"/></symbol>
   </svg>
 
@@ -47,13 +51,14 @@
       <a href="#/library" data-nav="library"><svg><use href="#i-photos"/></svg><span>Library</span></a>
       <a href="#/favorites" data-nav="favorites"><svg><use href="#i-heart"/></svg><span>Favorites</span></a>
       <a href="#/albums" data-nav="albums"><svg><use href="#i-album"/></svg><span>Albums</span></a>
+      <a href="#/people" data-nav="people"><svg><use href="#i-people"/></svg><span>People</span></a>
       <a href="#/trash" data-nav="trash"><svg><use href="#i-trash"/></svg><span>Trash</span></a>
       <a href="#/metrics" data-nav="metrics"><svg><use href="#i-chart"/></svg><span>Metrics</span></a>
       <a href="#/help" data-nav="help"><svg><use href="#i-help"/></svg><span>Help</span></a>
     </nav>
     <form class="search" role="search" id="search-form">
       <svg aria-hidden="true"><use href="#i-search"/></svg>
-      <input type="search" id="search" placeholder="Search names, tags, cameras, dates…" aria-label="Search" autocomplete="off">
+      <input type="search" id="search" placeholder="Search names, places, people, tags, dates…" aria-label="Search" autocomplete="off">
     </form>
     <label class="zoom" title="Thumbnail size">
       <span class="visually-hidden">Thumbnail size</span>
@@ -82,6 +87,7 @@
         <div class="viewer-title"><strong id="v-date"></strong><span id="v-name"></span></div>
         <button type="button" class="icon-btn" data-v="favorite" aria-label="Favorite (F)" title="Favorite (F)" aria-pressed="false"><svg><use href="#i-heart"/></svg></button>
         <button type="button" class="icon-btn" data-v="album" aria-label="Add to album (A)" title="Add to album (A)"><svg><use href="#i-album"/></svg></button>
+        <button type="button" class="icon-btn" data-v="people" aria-label="Tag people and pets (P)" title="Tag people and pets (P)"><svg><use href="#i-person"/></svg></button>
         <button type="button" class="icon-btn" data-v="edit" aria-label="Edit (E)" title="Edit: crop (E)"><svg><use href="#i-crop"/></svg></button>
         <a class="icon-btn" data-v="download" aria-label="Download original" title="Download original" download><svg><use href="#i-download"/></svg></a>
         <button type="button" class="icon-btn" data-v="trash" aria-label="Move to trash (Del)" title="Move to trash (Del)"><svg><use href="#i-trash"/></svg></button>
@@ -151,6 +157,62 @@
       <div class="dialog-actions">
         <button value="" class="btn" formnovalidate>Cancel</button>
         <button value="new" class="btn primary" id="album-new-btn">Create &amp; add</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Person picker: who's in the selected photos -->
+  <dialog id="person-picker" closedby="any" aria-labelledby="person-picker-title">
+    <form method="dialog" class="dialog-body">
+      <h2 id="person-picker-title">Who's in these?</h2>
+      <input id="person-filter" type="search" placeholder="Find someone" autocomplete="off" aria-label="Find someone" hidden>
+      <div class="album-choices person-choices" id="person-choices"></div>
+      <fieldset class="new-person">
+        <legend>Or add someone new</legend>
+        <input id="person-new-name" placeholder="Name, e.g. Grandma Rosa or Rex" autocomplete="off" maxlength="100" aria-label="Name">
+        <div class="segmented kind-choice" role="radiogroup" aria-label="Person or animal">
+          <label><input type="radio" name="picker-kind" value="person" checked><span>Person</span></label>
+          <label><input type="radio" name="picker-kind" value="animal"><span>Animal</span></label>
+        </div>
+      </fieldset>
+      <div class="dialog-actions">
+        <button value="" class="btn" formnovalidate>Cancel</button>
+        <button value="new" class="btn primary">Add &amp; tag</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add or edit a person / pet -->
+  <dialog id="person-form" closedby="any" aria-labelledby="person-form-title">
+    <form method="dialog" class="dialog-body">
+      <h2 id="person-form-title">Add someone</h2>
+      <label><span>Name</span><input id="person-form-name" required maxlength="100" autocomplete="off" placeholder="Any name you like"></label>
+      <div class="segmented kind-choice" role="radiogroup" aria-label="Person or animal">
+        <label><input type="radio" name="form-kind" value="person" checked><span>Person</span></label>
+        <label><input type="radio" name="form-kind" value="animal"><span>Animal</span></label>
+      </div>
+      <div class="dialog-actions">
+        <button value="" class="btn" formnovalidate>Cancel</button>
+        <button value="ok" class="btn primary" id="person-form-ok">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Place editor: where photos were taken -->
+  <dialog id="place-dialog" closedby="any" aria-labelledby="place-title">
+    <form method="dialog" class="dialog-body">
+      <h2 id="place-title">Where was this taken?</h2>
+      <p id="place-message"></p>
+      <label><span>City or town</span><input id="place-city" list="place-cities" maxlength="100" autocomplete="off"></label>
+      <label><span>Region <small>(optional)</small></span><input id="place-region" maxlength="100" autocomplete="off"></label>
+      <label><span>Country</span><input id="place-country" list="place-countries" maxlength="100" autocomplete="off"></label>
+      <datalist id="place-cities"></datalist>
+      <datalist id="place-countries"></datalist>
+      <p class="place-error" id="place-error" role="alert" hidden>Type a city or a country.</p>
+      <div class="dialog-actions">
+        <button value="reset" class="btn place-reset" id="place-reset" formnovalidate>Use GPS place</button>
+        <button value="" class="btn" formnovalidate>Cancel</button>
+        <button value="ok" class="btn primary">Save</button>
       </div>
     </form>
   </dialog>

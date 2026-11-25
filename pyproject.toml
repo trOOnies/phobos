@@ -39,6 +39,7 @@ phobos-web = "phobos.web.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"phobos" = ["data/*"]
 "phobos.web" = ["templates/*.html", "static/*", "static/**/*"]
 
 [tool.pytest.ini_options]

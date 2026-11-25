@@ -1,8 +1,11 @@
 // Full-screen viewer (<dialog> opened with showModal()).
-// Keys: ←/→ navigate, F favorite, I info, A add to album, E edit (crop), Del trash, Esc close.
+// Keys: ←/→ navigate, F favorite, I info, P people & pets, A add to album, E edit (crop),
+// Del trash, Esc close.
 
 import { api } from "./api.js";
 import { CropEditor } from "./editor.js";
+import { createPerson, findPerson, invalidatePeople, kindIcon, loadPeople } from "./people.js";
+import { editPlace, formatPlace, invalidatePlaces, placeHref } from "./places.js";
 import {
   formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
 } from "./ui.js";
@@ -22,6 +25,10 @@ export class Viewer {
     this.idx = 0;
     this.detail = null; // full record of the current item (tags, albums)
     this.btn = Object.fromEntries([...this.dialog.querySelectorAll("[data-v]")].map((b) => [b.dataset.v, b]));
+    // Name suggestions for the people & pets field.
+    this.names = h("datalist", { id: "people-names" });
+    this.dialog.append(this.names);
+    this.focusPeople = false; // put the cursor back in the people field after a re-render
 
     try { this.info.hidden = localStorage.getItem(INFO_KEY) !== "1"; } catch { /* storage unavailable */ }
     this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
@@ -64,7 +71,7 @@ export class Viewer {
     if (this.editor.open) return;
     if (e.target.closest("input, textarea")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", a: "album", e: "edit", Delete: "trash" };
+    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", p: "people", a: "album", e: "edit", Delete: "trash" };
     const action = map[e.key] ?? map[e.key.toLowerCase()];
     if (!action) return;
     // Let the video element handle arrow keys (seeking) when it has focus.
@@ -85,6 +92,13 @@ export class Viewer {
           this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
           try { localStorage.setItem(INFO_KEY, this.info.hidden ? "0" : "1"); } catch { /* ignore */ }
           if (!this.info.hidden) this.#renderInfo();
+          return;
+        }
+        case "people": {
+          this.focusPeople = true; // kept until the details (with the people) have loaded
+          if (this.info.hidden) await this.#act("info");
+          this.info.querySelector(".people-input")?.focus();
+          if (this.detail) this.focusPeople = false;
           return;
         }
         case "favorite": {
@@ -211,6 +225,7 @@ export class Viewer {
     this.btn.download.href = item.download_url;
     this.btn.trash.hidden = !!item.deleted_at;
     this.btn.album.hidden = !!item.deleted_at;
+    this.btn.people.hidden = !!item.deleted_at;
     this.btn.edit.hidden = !editable(item);
     this.btn.prev.disabled = this.idx === 0;
     this.btn.next.disabled = this.grid.done && this.idx >= this.grid.items.length - 1;
@@ -276,24 +291,121 @@ export class Viewer {
       ["Stored as", item.rel_path],
     ].filter(Boolean);
 
-    let location = null;
-    if (item.latitude !== null && item.latitude !== undefined) {
-      const { latitude: lat, longitude: lon } = item;
-      location = h("section", {}, h("span.label", { text: "Location" }),
-        h("a", { href: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}`, target: "_blank", rel: "noopener noreferrer" },
-          `${lat.toFixed(5)}, ${lon.toFixed(5)} ↗`));
-    }
+    const location = this.#placeSection(item, save);
+    const people = this.#peopleSection(item);
 
+    // The panel is rebuilt when details load: keep a name that's being typed.
+    const typing = document.activeElement?.matches?.(".people-input") ? document.activeElement.value : null;
     this.info.replaceChildren(...[
       h("h2", { text: "Details" }),
       h("section", {}, h("span.label", { text: "Description" }), desc),
       h("dl.kv", {}, rows.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: v })])),
       location,
+      people,
       h("section", {}, h("span.label", { text: "Date & time" }), when),
       h("section", {}, h("span.label", { text: "Tags" }), h("div.chips", {}, tagChips), tagInput),
       h("section", {}, h("span.label", { text: "Albums" }),
         albums.length ? h("div.chips", {}, albums) : h("span", { text: "Not in any album", style: "color:#9a929c" })),
     ].filter(Boolean));
+    const peopleInput = this.info.querySelector(".people-input");
+    if (typing !== null && peopleInput) {
+      peopleInput.value = typing;
+      peopleInput.focus();
+    } else if (this.focusPeople) {
+      peopleInput?.focus();
+      if (this.detail) this.focusPeople = false;
+    }
+  }
+
+  /** Where it was taken: the place name (links to everything from there) and the GPS spot. */
+  #placeSection(item, save) {
+    const hasGps = item.latitude !== null && item.latitude !== undefined;
+    const name = formatPlace(item);
+    const change = h("button.link-btn", {
+      type: "button", text: name ? "Change" : "Add place",
+      onclick: async () => {
+        const answer = await editPlace({ current: item, canReset: item.place_source === "manual" });
+        if (!answer) return;
+        await save({ place: answer.reset ? null : answer.place });
+        invalidatePlaces();
+      },
+    });
+    let map = null;
+    if (hasGps) {
+      const { latitude: lat, longitude: lon } = item;
+      map = h("a.coords", { href: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}`, target: "_blank", rel: "noopener noreferrer", title: "Open the map (OpenStreetMap, online)" },
+        `${lat.toFixed(5)}, ${lon.toFixed(5)} ↗`);
+    }
+    const note = item.place_source === "manual" ? "typed in" : hasGps && !name ? "no town nearby" : "";
+    return h("section.place", {},
+      h("span.label", { text: "Place" }),
+      name
+        ? h("a.place-name", { href: placeHref(item), title: "Everything from here", onclick: () => this.dialog.close() }, icon("pin"), h("span", { text: name }))
+        : h("span.muted-dark", { text: hasGps ? "Unknown place" : "No location saved" }),
+      h("div.place-meta", {}, map, note ? h("small", { text: note }) : null, change));
+  }
+
+  /** Who is in it: chips for each person or pet, and a field to add one by name. */
+  #peopleSection(item) {
+    const people = this.detail?.people ?? [];
+    const update = async (fn) => {
+      try {
+        await fn();
+        invalidatePeople();
+        await this.#loadDetail();
+      } catch (err) { toastError(err); }
+    };
+    const add = (person) => update(async () => {
+      await api.action([item.id], "add_person", { person_id: person.id });
+      this.focusPeople = true;
+    });
+    const chips = people.map((p) => h("span.chip", {},
+      h("a", { href: `#/people/${p.id}`, onclick: () => this.dialog.close(), title: `Everything with ${p.name}` },
+        icon(kindIcon(p.kind)), h("span", { text: p.name })),
+      h("button", { type: "button", "aria-label": `${p.name} isn't in this`, title: `${p.name} isn't in this`,
+        onclick: () => update(() => api.action([item.id], "remove_person", { person_id: p.id })) }, icon("close"))));
+
+    const input = h("input.people-input", { placeholder: "Add a name, press Enter", maxLength: 100, list: "people-names", "aria-label": "Add a person or pet", autocomplete: "off" });
+    // Someone new: ask whether it's a person or an animal before saving the name.
+    const ask = h("div.new-kind", { hidden: true });
+    const askKind = (name) => {
+      const choose = (kind) => update(async () => {
+        const person = await createPerson(name, kind);
+        await api.action([item.id], "add_person", { person_id: person.id });
+        this.focusPeople = true;
+      });
+      ask.replaceChildren(
+        h("span", { text: `“${name}” is new. Is it a…` }),
+        h("div.row", {},
+          h("button.btn.small", { type: "button", onclick: () => choose("person") }, icon("person"), h("span", { text: "Person" })),
+          h("button.btn.small", { type: "button", onclick: () => choose("animal") }, icon("paw"), h("span", { text: "Animal" })),
+          h("button.link-btn", { type: "button", text: "Cancel", onclick: () => { ask.hidden = true; input.focus(); } })));
+      ask.hidden = false;
+      ask.querySelector("button").focus();
+    };
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter" || !input.value.trim()) return;
+      e.preventDefault();
+      const name = input.value.trim();
+      try {
+        const known = await findPerson(name);
+        if (known) {
+          if (people.some((p) => p.id === known.id)) { input.value = ""; return toast(`${known.name} is already here`); }
+          return add(known);
+        }
+        askKind(name);
+      } catch (err) { toastError(err); }
+    });
+    loadPeople().then((all) => {
+      const here = new Set(people.map((p) => p.id));
+      this.names.replaceChildren(...all.filter((p) => !here.has(p.id)).map((p) => h("option", { value: p.name })));
+    }).catch(() => { /* suggestions are optional */ });
+
+    return h("section.people-field", {},
+      h("span.label", { text: "People & pets" }),
+      chips.length ? h("div.chips", {}, chips) : null,
+      item.deleted_at ? null : input,
+      ask);
   }
 }
 

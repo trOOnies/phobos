@@ -76,6 +76,7 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._runner = ThreadPoolExecutor(max_workers=1, thread_name_prefix="phobos-job")
+        self._closing = False
 
     def list(self) -> list[Job]:
         with self._lock:
@@ -103,7 +104,19 @@ class JobManager:
         job = Job(kind="rescan", path=str(self.library.settings.library_dir))
         return self._submit(job, lambda conn: self._run_rescan(job, conn))
 
+    def fill_places(self) -> None:
+        """Name the places of older GPS-tagged items, on the job thread (after any import)."""
+
+        def run() -> None:
+            try:
+                self.library.fill_places(should_stop=lambda: self._closing)
+            except Exception:
+                log.exception("naming places failed")
+
+        self._runner.submit(run)
+
     def shutdown(self) -> None:
+        self._closing = True
         for job in self.active():
             job.cancel_requested = True
         self._runner.shutdown(wait=True, cancel_futures=True)
@@ -225,3 +238,4 @@ class JobManager:
                 for m in missing[:MAX_REPORTED_ERRORS]
             )
         self._process(job, conn, new, in_place=True)
+        self.library.fill_places(should_stop=lambda: job.cancel_requested)

@@ -13,8 +13,9 @@ from phobos.db import transaction
 MEDIA_COLUMNS = (
     "id, sha256, kind, rel_path, original_name, mime, size, width, height, duration, "
     "taken_at, taken_at_source, camera_make, camera_model, latitude, longitude, "
-    "description, favorite, imported_at, deleted_at"
+    "city, region, country, place_source, description, favorite, imported_at, deleted_at"
 )
+_M_COLUMNS = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
 
 
 def now_iso() -> str:
@@ -44,6 +45,7 @@ def get_media(conn: sqlite3.Connection, media_id: int) -> dict[str, Any] | None:
     item = _row(row)
     if item is not None:
         item["tags"] = media_tags(conn, media_id)
+        item["people"] = media_people(conn, media_id)
         item["albums"] = [
             dict(r)
             for r in conn.execute(
@@ -73,6 +75,9 @@ class MediaFilter:
     # True: only items in at least one album; False: only items in no album.
     in_album: bool | None = None
     tag: str | None = None
+    person_id: int | None = None
+    country: str | None = None
+    city: str | None = None
     q: str | None = None
     date_from: str | None = None  # inclusive, ISO date/datetime
     date_to: str | None = None  # exclusive
@@ -102,17 +107,32 @@ class MediaFilter:
                 "WHERE mt.media_id = m.id AND t.name = ?)"
             )
             params.append(self.tag)
+        if self.person_id is not None:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM media_people mp WHERE mp.media_id = m.id "
+                "AND mp.person_id = ?)"
+            )
+            params.append(self.person_id)
+        if self.country:
+            clauses.append("m.country = ? COLLATE NOCASE")
+            params.append(self.country)
+        if self.city:
+            clauses.append("m.city = ? COLLATE NOCASE")
+            params.append(self.city)
         if self.q:
             for word in self.q.split():
                 like = f"%{_escape_like(word)}%"
                 clauses.append(
                     "(m.original_name LIKE ? ESCAPE '\\' OR m.description LIKE ? ESCAPE '\\' "
                     "OR m.camera_make LIKE ? ESCAPE '\\' OR m.camera_model LIKE ? ESCAPE '\\' "
-                    "OR m.taken_at LIKE ? ESCAPE '\\' "
+                    "OR m.taken_at LIKE ? ESCAPE '\\' OR m.city LIKE ? ESCAPE '\\' "
+                    "OR m.region LIKE ? ESCAPE '\\' OR m.country LIKE ? ESCAPE '\\' "
                     "OR EXISTS (SELECT 1 FROM media_tags mt JOIN tags t ON t.id = mt.tag_id "
-                    "WHERE mt.media_id = m.id AND t.name LIKE ? ESCAPE '\\'))"
+                    "WHERE mt.media_id = m.id AND t.name LIKE ? ESCAPE '\\') "
+                    "OR EXISTS (SELECT 1 FROM media_people mp JOIN people p ON p.id = mp.person_id "
+                    "WHERE mp.media_id = m.id AND p.name LIKE ? ESCAPE '\\'))"
                 )
-                params.extend([like] * 6)
+                params.extend([like] * 10)
         if self.date_from:
             clauses.append("m.taken_at >= ?")
             params.append(self.date_from)
@@ -146,7 +166,7 @@ def list_media(
         taken_at, media_id = decode_cursor(cursor)
         where += " AND (m.taken_at, m.id) < (?, ?)"
         params += [taken_at, media_id]
-    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    cols = _M_COLUMNS
     rows = conn.execute(
         f"SELECT {cols} FROM media m WHERE {where} ORDER BY m.taken_at DESC, m.id DESC LIMIT ?",
         [*params, limit + 1],
@@ -307,6 +327,156 @@ def list_tags(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+# --------------------------------------------------------------------------- places
+
+
+def normalize_place(text: str | None) -> str:
+    return " ".join((text or "").split())[:100]
+
+
+def set_place(
+    conn: sqlite3.Connection,
+    ids: Sequence[int],
+    place: dict[str, str] | None,
+    source: str | None,
+) -> int:
+    """Store a place (``{"city", "region", "country"}``, or None for none) on items."""
+    if not ids:
+        return 0
+    p = {k: normalize_place((place or {}).get(k)) or None for k in ("city", "region", "country")}
+    return conn.execute(
+        f"UPDATE media SET city = ?, region = ?, country = ?, place_source = ? "
+        f"WHERE id IN ({_in(ids)})",
+        [p["city"], p["region"], p["country"], source, *ids],
+    ).rowcount
+
+
+def pending_places(conn: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
+    """Items with GPS coordinates whose place hasn't been looked up yet."""
+    rows = conn.execute(
+        "SELECT id, latitude, longitude FROM media "
+        "WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND place_source IS NULL "
+        "LIMIT ?",
+        (limit,),
+    )
+    return [dict(r) for r in rows]
+
+
+def list_places(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Countries with their cities and how many items each has, most items first."""
+    rows = conn.execute(
+        "SELECT country, city, MIN(region) AS region, COUNT(*) AS count FROM media "
+        "WHERE deleted_at IS NULL AND country IS NOT NULL "
+        "GROUP BY country COLLATE NOCASE, city COLLATE NOCASE "
+        "ORDER BY country COLLATE NOCASE, count DESC, city COLLATE NOCASE"
+    )
+    countries: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        c = countries.setdefault(
+            r["country"].casefold(), {"country": r["country"], "count": 0, "cities": []}
+        )
+        c["count"] += r["count"]
+        if r["city"]:
+            c["cities"].append({"city": r["city"], "region": r["region"], "count": r["count"]})
+    return sorted(countries.values(), key=lambda c: (-c["count"], c["country"].casefold()))
+
+
+# --------------------------------------------------------------------------- people & pets
+
+PERSON_KINDS = ("person", "animal")
+
+_PERSON_SELECT = """
+SELECT p.id, p.name, p.kind, p.created_at, p.cover_media_id,
+       (SELECT COUNT(*) FROM media_people mp JOIN media m ON m.id = mp.media_id
+         WHERE mp.person_id = p.id AND m.deleted_at IS NULL) AS count,
+       COALESCE(
+         (SELECT m.id FROM media m JOIN media_people mp ON mp.media_id = m.id
+           WHERE m.id = p.cover_media_id AND mp.person_id = p.id AND m.deleted_at IS NULL),
+         (SELECT m.id FROM media_people mp JOIN media m ON m.id = mp.media_id
+           WHERE mp.person_id = p.id AND m.deleted_at IS NULL
+           ORDER BY m.taken_at DESC, m.id DESC LIMIT 1)
+       ) AS cover_id
+FROM people p
+"""
+
+
+def normalize_name(name: str) -> str:
+    return " ".join(name.strip().split())[:100]
+
+
+def list_people(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    return [dict(r) for r in conn.execute(_PERSON_SELECT + " ORDER BY p.name COLLATE NOCASE")]
+
+
+def get_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any] | None:
+    row = conn.execute(_PERSON_SELECT + " WHERE p.id = ?", (person_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_person(conn: sqlite3.Connection, name: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        _PERSON_SELECT + " WHERE p.name = ? COLLATE NOCASE", (normalize_name(name),)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def create_person(conn: sqlite3.Connection, name: str, kind: str = "person") -> int:
+    """Raises ``sqlite3.IntegrityError`` when the name is taken (names ignore case)."""
+    return conn.execute(
+        "INSERT INTO people (name, kind, created_at) VALUES (?, ?, ?)",
+        (normalize_name(name), kind, now_iso()),
+    ).lastrowid
+
+
+def update_person(conn: sqlite3.Connection, person_id: int, **fields: Any) -> bool:
+    allowed = {"name", "kind", "cover_media_id"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if "name" in fields:
+        fields["name"] = normalize_name(fields["name"])
+    if not fields:
+        return get_person(conn, person_id) is not None
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    cur = conn.execute(f"UPDATE people SET {sets} WHERE id = ?", [*fields.values(), person_id])
+    return cur.rowcount > 0
+
+
+def delete_person(conn: sqlite3.Connection, person_id: int) -> bool:
+    """Forget a person or pet; their photos and videos stay."""
+    return conn.execute("DELETE FROM people WHERE id = ?", (person_id,)).rowcount > 0
+
+
+def media_people(conn: sqlite3.Connection, media_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT p.id, p.name, p.kind FROM people p JOIN media_people mp ON mp.person_id = p.id "
+        "WHERE mp.media_id = ? ORDER BY p.name COLLATE NOCASE",
+        (media_id,),
+    )
+    return [dict(r) for r in rows]
+
+
+def add_person(conn: sqlite3.Connection, ids: Sequence[int], person_id: int) -> int:
+    """Mark that someone is in these items; returns how many weren't marked yet."""
+    if not ids:
+        return 0
+    with transaction(conn):
+        before = conn.total_changes
+        conn.executemany(
+            "INSERT OR IGNORE INTO media_people (media_id, person_id) "
+            "SELECT id, ? FROM media WHERE id = ?",
+            [(person_id, i) for i in ids],
+        )
+        return conn.total_changes - before
+
+
+def remove_person(conn: sqlite3.Connection, ids: Sequence[int], person_id: int) -> int:
+    if not ids:
+        return 0
+    return conn.execute(
+        f"DELETE FROM media_people WHERE person_id = ? AND media_id IN ({_in(ids)})",
+        [person_id, *ids],
+    ).rowcount
+
+
 # --------------------------------------------------------------------------- albums
 
 _ALBUM_SELECT = """
@@ -450,7 +620,7 @@ def import_duplicates(
     total = conn.execute(
         "SELECT COUNT(*) FROM import_duplicates WHERE import_id = ?", (import_id,)
     ).fetchone()[0]
-    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    cols = _M_COLUMNS
     rows = conn.execute(
         f"SELECT d.source, {cols} FROM import_duplicates d JOIN media m ON m.id = d.media_id "
         "WHERE d.import_id = ? ORDER BY d.source LIMIT ? OFFSET ?",
@@ -478,18 +648,25 @@ def interrupt_unfinished_imports(conn: sqlite3.Connection) -> int:
 def copy_media_details(
     conn: sqlite3.Connection, src_id: int, dst_id: int, *, take_over_covers: bool = False
 ) -> None:
-    """Give an edited copy the original's date, description, favorite, tags and albums."""
+    """Give an edited copy the original's date, description, favorite, place, tags,
+    people and albums."""
+    copied = (
+        "taken_at, taken_at_source, description, favorite, camera_make, camera_model, "
+        "latitude, longitude, city, region, country, place_source"
+    )
     with transaction(conn):
         conn.execute(
-            "UPDATE media SET (taken_at, taken_at_source, description, favorite, camera_make, "
-            "camera_model, latitude, longitude) = (SELECT taken_at, taken_at_source, description, "
-            "favorite, camera_make, camera_model, latitude, longitude FROM media WHERE id = ?) "
-            "WHERE id = ?",
+            f"UPDATE media SET ({copied}) = (SELECT {copied} FROM media WHERE id = ?) WHERE id = ?",
             (src_id, dst_id),
         )
         conn.execute(
             "INSERT OR IGNORE INTO media_tags (media_id, tag_id) "
             "SELECT ?, tag_id FROM media_tags WHERE media_id = ?",
+            (dst_id, src_id),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO media_people (media_id, person_id) "
+            "SELECT ?, person_id FROM media_people WHERE media_id = ?",
             (dst_id, src_id),
         )
         conn.execute(
@@ -500,6 +677,9 @@ def copy_media_details(
         if take_over_covers:
             conn.execute(
                 "UPDATE albums SET cover_media_id = ? WHERE cover_media_id = ?", (dst_id, src_id)
+            )
+            conn.execute(
+                "UPDATE people SET cover_media_id = ? WHERE cover_media_id = ?", (dst_id, src_id)
             )
 
 
@@ -513,7 +693,7 @@ _PENDING_ANALYSIS = (
 
 
 def pending_analysis(conn: sqlite3.Connection, version: int, limit: int) -> list[dict[str, Any]]:
-    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    cols = _M_COLUMNS
     rows = conn.execute(
         f"SELECT {cols} {_PENDING_ANALYSIS} ORDER BY m.taken_at DESC, m.id DESC LIMIT ?",
         (version, limit),
@@ -639,7 +819,7 @@ def cleanup_items(
     base, order = _cleanup_sql(category)
     if category == "largest":
         limit = min(limit, LARGEST_LIMIT)
-    cols = ", ".join(f"m.{c.strip()}" for c in MEDIA_COLUMNS.split(","))
+    cols = _M_COLUMNS
     extra = ", a.crop_left, a.crop_top, a.crop_right, a.crop_bottom, a.mean, a.stddev, a.error"
     if not CLEANUP[category][2]:
         extra = ""
@@ -664,6 +844,7 @@ def metrics(conn: sqlite3.Connection) -> dict[str, Any]:
             f" COALESCE(SUM(CASE WHEN kind = 'video' AND {live} THEN size END), 0) AS video_bytes,"
             f" COALESCE(SUM(favorite AND {live}), 0) AS favorites,"
             f" COALESCE(SUM(latitude IS NOT NULL AND {live}), 0) AS with_location,"
+            f" COALESCE(SUM(country IS NOT NULL AND {live}), 0) AS with_place,"
             f" COALESCE(SUM(description != '' AND {live}), 0) AS described,"
             " COALESCE(SUM(deleted_at IS NOT NULL), 0) AS trash,"
             " COALESCE(SUM(CASE WHEN deleted_at IS NOT NULL THEN size END), 0) AS trash_bytes,"
@@ -678,6 +859,11 @@ def metrics(conn: sqlite3.Connection) -> dict[str, Any]:
     ).fetchone()[0]
     totals["albums"] = conn.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
     totals["tags"] = conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
+    totals["people"] = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+    totals["with_people"] = conn.execute(
+        "SELECT COUNT(DISTINCT mp.media_id) FROM media_people mp "
+        "JOIN media m ON m.id = mp.media_id WHERE m.deleted_at IS NULL"
+    ).fetchone()[0]
     totals["tagged"] = conn.execute(
         "SELECT COUNT(DISTINCT mt.media_id) FROM media_tags mt "
         "JOIN media m ON m.id = mt.media_id WHERE m.deleted_at IS NULL"
@@ -702,6 +888,10 @@ def metrics(conn: sqlite3.Connection) -> dict[str, Any]:
             "AS camera, "
             f"COUNT(*) AS count FROM media WHERE {live} AND camera_model IS NOT NULL "
             "GROUP BY camera ORDER BY count DESC LIMIT 8"
+        ),
+        "countries": rows(
+            f"SELECT MIN(country) AS country, COUNT(*) AS count FROM media WHERE {live} "
+            "AND country IS NOT NULL GROUP BY country COLLATE NOCASE ORDER BY count DESC LIMIT 8"
         ),
         "date_sources": rows(
             f"SELECT taken_at_source AS source, COUNT(*) AS count FROM media WHERE {live} "

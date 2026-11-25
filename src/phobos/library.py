@@ -25,7 +25,7 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
-from phobos import analysis, db, repo, thumbs
+from phobos import analysis, db, places, repo, thumbs
 from phobos.config import Settings
 from phobos.metadata import extract_metadata, local_tz
 from phobos.paths import iter_media_files, library_rel_path, media_kind, mime_type
@@ -179,6 +179,7 @@ class Library:
                 "taken_at": meta.taken_at.isoformat(), "taken_at_source": meta.taken_at_source,
                 "camera_make": meta.camera_make, "camera_model": meta.camera_model,
                 "latitude": meta.latitude, "longitude": meta.longitude,
+                **self._place_fields(meta.latitude, meta.longitude),
                 "imported_at": repo.now_iso(),
             }  # fmt: skip
             try:
@@ -237,6 +238,53 @@ class Library:
         ]
         missing = [r for r in rows if not (root / r["rel_path"]).exists()]
         return new, missing
+
+    # ------------------------------------------------------------------ places
+
+    @staticmethod
+    def _place_fields(lat: float | None, lon: float | None) -> dict[str, Any]:
+        """Columns naming where a photo was taken, looked up offline from its GPS position."""
+        if lat is None or lon is None:
+            return {}
+        try:
+            place = places.lookup(lat, lon)
+        except Exception as exc:  # a broken gazetteer must never block an import
+            log.warning("place lookup failed for %s, %s: %s", lat, lon, exc)
+            return {}
+        return {**(place.as_dict() if place else {}), "place_source": "gps"}
+
+    def fill_places(self, batch: int = 500, should_stop: Callable[[], bool] = lambda: False) -> int:
+        """Name the places of items with GPS that were imported before places existed."""
+        done = 0
+        while not should_stop():
+            with self.conn() as conn:
+                rows = repo.pending_places(conn, batch)
+                if not rows:
+                    break
+                with db.transaction(conn):
+                    for r in rows:
+                        fields = self._place_fields(r["latitude"], r["longitude"])
+                        place = {k: fields.get(k, "") for k in ("city", "region", "country")}
+                        # Marked as looked up even when there's no town nearby (or it failed).
+                        repo.set_place(conn, [r["id"]], place, "gps")
+            done += len(rows)
+        if done:
+            log.info("named the places of %d item(s) from their GPS position", done)
+        return done
+
+    def reset_place(self, conn: sqlite3.Connection, ids: list[int]) -> int:
+        """Forget typed-in places: back to the GPS place, or none without GPS."""
+        n = 0
+        for i in ids:
+            row = conn.execute(
+                "SELECT latitude, longitude FROM media WHERE id = ?", (i,)
+            ).fetchone()
+            if row is None:
+                continue
+            fields = self._place_fields(row["latitude"], row["longitude"])
+            place = {k: fields.get(k, "") for k in ("city", "region", "country")}
+            n += repo.set_place(conn, [i], place, fields.get("place_source"))
+        return n
 
     # ------------------------------------------------------------------ derived images
 

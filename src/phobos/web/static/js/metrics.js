@@ -49,7 +49,8 @@ function overviewNodes(m) {
     tile("In albums", pct(t.in_albums), `${plural(t.in_albums, "item")} in ${plural(t.albums, "album")}`),
     tile("Favorites", t.favorites.toLocaleString(), pct(t.favorites) + " of the library"),
     tile("Tagged", t.tagged.toLocaleString(), plural(t.tags, "different tag")),
-    tile("With location", t.with_location.toLocaleString(), pct(t.with_location) + " have GPS"),
+    tile("With a place", t.with_place.toLocaleString(), `${pct(t.with_place)} · ${t.with_location.toLocaleString()} with GPS`),
+    tile("People & pets", t.people.toLocaleString(), `in ${plural(t.with_people, "item")}`, "#/people"),
     tile("Trash", t.trash.toLocaleString(), t.trash ? `${formatBytes(t.trash_bytes)} to free up` : "Empty", "#/trash"),
   ];
   const span = t.oldest ? `${formatLongDate(t.oldest)} – ${formatLongDate(t.newest)}` : "";
@@ -66,6 +67,10 @@ function overviewNodes(m) {
         m.cameras.length
           ? hbars(m.cameras.map((r) => ({ label: r.camera, value: r.count })))
           : h("p.muted", { text: "No camera information in your files." })),
+      h("section.card", {}, h("h2", { text: "Top countries" }),
+        m.countries.length
+          ? hbars(m.countries.map((r) => ({ label: r.country, value: r.count })))
+          : h("p.muted", { text: "No places yet. Photos with GPS get one automatically; you can also set it in the viewer." })),
       h("section.card", {}, h("h2", { text: "Where the dates come from" }),
         hbars(m.date_sources.map((r) => ({ label: DATE_SOURCES[r.source] ?? r.source, value: r.count }))),
         h("p.card-note", { text: "Dates from the file name or modified time are guesses. Fix them in the viewer's details." }))),

@@ -23,7 +23,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from phobos import __version__, analysis, repo
 from phobos.jobs import JobManager
@@ -76,14 +76,22 @@ def media_filter(
     album: int | None = None,
     in_album: bool | None = None,
     tag: str | None = None,
+    person: int | None = None,
+    country: str | None = None,
+    city: str | None = None,
     q: str | None = None,
     date_from: Annotated[str | None, Query(alias="from")] = None,
     date_to: Annotated[str | None, Query(alias="to")] = None,
 ) -> repo.MediaFilter:
     return repo.MediaFilter(
         trash=trash, kind=kind, favorite=favorite, album_id=album, in_album=in_album, tag=tag,
-        q=(q or "").strip() or None, date_from=date_from, date_to=date_to,
+        person_id=person, country=_clean(country), city=_clean(city), q=_clean(q),
+        date_from=date_from, date_to=date_to,
     )  # fmt: skip
+
+
+def _clean(text: str | None) -> str | None:
+    return (text or "").strip() or None
 
 
 FilterDep = Annotated[repo.MediaFilter, Depends(media_filter)]
@@ -106,6 +114,13 @@ def _require_media(conn: sqlite3.Connection, media_id: int) -> dict[str, Any]:
     if item is None:
         raise HTTPException(404, "media not found")
     return item
+
+
+def _require_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any]:
+    person = repo.get_person(conn, person_id)
+    if person is None:
+        raise HTTPException(404, "person not found")
+    return person
 
 
 def _require_album(conn: sqlite3.Connection, album_id: int) -> dict[str, Any]:
@@ -169,15 +184,33 @@ def get_media(media_id: int, conn: ConnDep) -> dict[str, Any]:
     return serialize(_require_media(conn, media_id))
 
 
+class PlaceIn(BaseModel):
+    """A place typed in by hand; a city, a country or both."""
+
+    city: str = Field("", max_length=100)
+    region: str = Field("", max_length=100)
+    country: str = Field("", max_length=100)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> PlaceIn:
+        if not (repo.normalize_place(self.city) or repo.normalize_place(self.country)):
+            raise ValueError("a place needs a city or a country")
+        return self
+
+
 class MediaPatch(BaseModel):
     favorite: bool | None = None
     description: str | None = Field(None, max_length=5000)
     taken_at: datetime | None = None
     tags: list[Annotated[str, Field(max_length=64)]] | None = None
+    # A place typed in by hand; null forgets it (back to the GPS place, if any).
+    place: PlaceIn | None = None
 
 
 @router.patch("/media/{media_id}")
-def patch_media(media_id: int, body: MediaPatch, conn: ConnDep) -> dict[str, Any]:
+def patch_media(
+    media_id: int, body: MediaPatch, conn: ConnDep, library: LibraryDep
+) -> dict[str, Any]:
     _require_media(conn, media_id)
     fields: dict[str, Any] = {}
     if body.favorite is not None:
@@ -190,6 +223,10 @@ def patch_media(media_id: int, body: MediaPatch, conn: ConnDep) -> dict[str, Any
     repo.update_media(conn, media_id, **fields)
     if body.tags is not None:
         repo.set_tags(conn, media_id, body.tags)
+    if body.place is not None:
+        repo.set_place(conn, [media_id], body.place.model_dump(), "manual")
+    elif "place" in body.model_fields_set:
+        library.reset_place(conn, [media_id])
     return serialize(_require_media(conn, media_id))
 
 
@@ -198,9 +235,12 @@ class BulkAction(BaseModel):
     action: Literal[
         "favorite", "unfavorite", "trash", "restore", "purge",
         "add_to_album", "remove_from_album", "add_tag", "remove_tag",
+        "add_person", "remove_person", "set_place", "reset_place",
     ]  # fmt: skip
     album_id: int | None = None
     tag: str | None = Field(None, max_length=64)
+    person_id: int | None = None
+    place: PlaceIn | None = None
 
 
 @router.post("/media/actions")
@@ -213,6 +253,12 @@ def bulk_action(body: BulkAction, conn: ConnDep, library: LibraryDep) -> dict[st
         _require_album(conn, body.album_id)
     if a in ("add_tag", "remove_tag") and not (body.tag or "").strip():
         raise HTTPException(422, "tag is required")
+    if a in ("add_person", "remove_person"):
+        if body.person_id is None:
+            raise HTTPException(422, "person_id is required")
+        _require_person(conn, body.person_id)
+    if a == "set_place" and body.place is None:
+        raise HTTPException(422, "place is required")
 
     if a in ("favorite", "unfavorite"):
         n = repo.set_favorite(conn, ids, a == "favorite")
@@ -228,8 +274,16 @@ def bulk_action(body: BulkAction, conn: ConnDep, library: LibraryDep) -> dict[st
         n = repo.remove_from_album(conn, body.album_id, ids)  # type: ignore[arg-type]
     elif a == "add_tag":
         n = repo.add_tag(conn, ids, body.tag)  # type: ignore[arg-type]
-    else:
+    elif a == "remove_tag":
         n = repo.remove_tag(conn, ids, body.tag)  # type: ignore[arg-type]
+    elif a == "add_person":
+        n = repo.add_person(conn, ids, body.person_id)  # type: ignore[arg-type]
+    elif a == "remove_person":
+        n = repo.remove_person(conn, ids, body.person_id)  # type: ignore[arg-type]
+    elif a == "set_place":
+        n = repo.set_place(conn, ids, body.place.model_dump(), "manual")  # type: ignore[union-attr]
+    else:
+        n = library.reset_place(conn, ids)
     return {"affected": n}
 
 
@@ -416,6 +470,78 @@ def run_analysis(library: LibraryDep) -> dict[str, Any]:
 @router.get("/tags")
 def tags(conn: ConnDep) -> list[dict[str, Any]]:
     return repo.list_tags(conn)
+
+
+# --------------------------------------------------------------------------- places
+
+
+@router.get("/places")
+def places(conn: ConnDep) -> list[dict[str, Any]]:
+    """Countries (most items first) with their cities, for the place filter."""
+    return repo.list_places(conn)
+
+
+# --------------------------------------------------------------------------- people & pets
+
+
+class PersonIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    kind: Literal["person", "animal"] = "person"
+
+
+class PersonPatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    kind: Literal["person", "animal"] | None = None
+    cover_media_id: int | None = None
+
+
+def _name_taken(conn: sqlite3.Connection, name: str) -> HTTPException:
+    existing = repo.find_person(conn, name)
+    shown = existing["name"] if existing else repo.normalize_name(name)
+    return HTTPException(409, f"There's already someone called “{shown}”.")
+
+
+@router.get("/people")
+def list_people(conn: ConnDep) -> list[dict[str, Any]]:
+    return repo.list_people(conn)
+
+
+@router.post("/people", status_code=201)
+def create_person(body: PersonIn, conn: ConnDep) -> dict[str, Any]:
+    if not repo.normalize_name(body.name):
+        raise HTTPException(422, "name is required")
+    try:
+        person_id = repo.create_person(conn, body.name, body.kind)
+    except sqlite3.IntegrityError as exc:
+        raise _name_taken(conn, body.name) from exc
+    return _require_person(conn, person_id)
+
+
+@router.get("/people/{person_id}")
+def get_person(person_id: int, conn: ConnDep) -> dict[str, Any]:
+    return _require_person(conn, person_id)
+
+
+@router.patch("/people/{person_id}")
+def patch_person(person_id: int, body: PersonPatch, conn: ConnDep) -> dict[str, Any]:
+    _require_person(conn, person_id)
+    fields = body.model_dump(exclude_unset=True)
+    if "name" in fields and not repo.normalize_name(fields["name"] or ""):
+        raise HTTPException(422, "name is required")
+    if fields.get("cover_media_id") is not None:
+        _require_media(conn, fields["cover_media_id"])
+    try:
+        repo.update_person(conn, person_id, **fields)
+    except sqlite3.IntegrityError as exc:
+        raise _name_taken(conn, fields["name"]) from exc
+    return _require_person(conn, person_id)
+
+
+@router.delete("/people/{person_id}", status_code=204)
+def delete_person(person_id: int, conn: ConnDep) -> Response:
+    if not repo.delete_person(conn, person_id):
+        raise HTTPException(404, "person not found")
+    return Response(status_code=204)
 
 
 # --------------------------------------------------------------------------- albums
