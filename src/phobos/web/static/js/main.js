@@ -14,7 +14,7 @@ import { renderMetrics } from "./metrics.js";
 import { invalidatePeople, kindIcon, kindLabel, personForm, pickPerson, renderPeople } from "./people.js";
 import { editPlace, invalidatePlaces, placeFilter, shortPlace } from "./places.js";
 import {
-  button, confirmDialog, debounce, formatMonth, formatShortMonth, h, icon, plural, promptDialog,
+  albumToast, button, confirmDialog, debounce, formatMonth, formatShortMonth, h, icon, plural, promptDialog,
   toast, toastError,
 } from "./ui.js";
 import { Viewer } from "./viewer.js";
@@ -469,8 +469,7 @@ function updateSelectionBar(grid) {
         if (!album) return;
         const sel = ids();
         const r = await api.action(sel, "add_to_album", { album_id: album.id });
-        const msg = r.affected ? `Added ${plural(r.affected, "item")} to “${album.name}”` : `Already in “${album.name}”`;
-        toast(msg, { action: "Open", onAction: () => { location.hash = `#/albums/${album.id}`; } });
+        albumToast(album, { added: r.affected, count: sel.length });
         // The library only lists items outside albums (unless the toggle is on).
         if (current.ctx === "library" && !showAlbumItems) grid.remove(sel);
         else grid.clearSelection();
@@ -589,7 +588,8 @@ async function pickAlbum({ contains = [] } = {}) {
   const name = nameInput.value.trim();
   if (value !== "new" || !name) return null;
   // Typing the name of an existing album adds to it instead of creating a twin.
-  return albums.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? api.post("/api/albums", { name });
+  return albums.find((a) => a.name.toLowerCase() === name.toLowerCase())
+    ?? { ...(await api.post("/api/albums", { name })), created: true };
 }
 
 // Enter in the name field would "submit" with the form's first submit button - the first album.

@@ -73,7 +73,14 @@ export function debounce(fn, ms) {
 
 export function toast(message, { error = false, action, onAction, timeout = 5000 } = {}) {
   const box = document.getElementById("toasts");
-  const el = h("div.toast", { class: error ? "toast error" : "toast" }, h("span", { text: message }));
+  // A modal <dialog> (like the viewer) covers - and makes inert - everything outside it,
+  // so toasts go inside the topmost one while it's open.
+  const host = [...document.querySelectorAll("dialog:modal")].at(-1) ?? document.body;
+  if (box.parentElement !== host) {
+    host.append(box);
+    if (host !== document.body) host.addEventListener("close", () => document.body.append(box), { once: true });
+  }
+  const el = h("div.toast", { class: error ? "toast error" : "toast" }, h("span", {}, message));
   if (action) {
     el.append(h("button", { type: "button", text: action, onclick: () => { onAction?.(); el.remove(); } }));
   }
@@ -82,7 +89,26 @@ export function toast(message, { error = false, action, onAction, timeout = 5000
   setTimeout(() => el.remove(), error ? Math.max(timeout, 8000) : timeout);
 }
 
-export const toastError = (err) => toast(err?.message || String(err), { error: true });
+/**
+ * Confirm an "add to album" with a link to the album.
+ * @param {{id: number, name: string, created?: boolean}} album
+ * @param {{added: number, count?: number, onOpen?: () => void}} opts
+ *   added: how many were newly added; count: how many were chosen (omit for a single open item)
+ */
+export function albumToast(album, { added, count, onOpen }) {
+  const link = h("a", { href: `#/albums/${album.id}`, text: album.name, onclick: (e) => {
+    e.currentTarget.closest(".toast")?.remove();
+    onOpen?.();
+  } });
+  const many = count !== undefined;
+  let msg;
+  if (album.created) msg = many ? ["Created the album ", link, ` with ${plural(added, "item")}`] : ["Created the album ", link, " and added this to it"];
+  else if (!added) msg = [many && count > 1 ? "Already all in " : "Already in ", link];
+  else msg = many ? [`Added ${plural(added, "item")} to `, link] : ["Added to ", link];
+  toast(msg);
+}
+
+export const toastError =(err) => toast(err?.message || String(err), { error: true });
 
 // ------------------------------------------------------------------ dialogs
 

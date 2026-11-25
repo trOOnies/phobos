@@ -7,7 +7,7 @@ import { CropEditor } from "./editor.js";
 import { createPerson, findPerson, invalidatePeople, kindIcon, loadPeople } from "./people.js";
 import { editPlace, formatPlace, invalidatePlaces, placeHref } from "./places.js";
 import {
-  formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
+  albumToast, formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
 } from "./ui.js";
 
 const INFO_KEY = "phobos.viewer.info";
@@ -110,7 +110,7 @@ export class Viewer {
           const album = await this.pickAlbum({ contains: (this.detail?.albums ?? []).map((x) => x.id) });
           if (!album) return;
           const r = await api.action([item.id], "add_to_album", { album_id: album.id });
-          toast(r.affected ? `Added to “${album.name}”` : `Already in “${album.name}”`);
+          albumToast(album, { added: r.affected, onOpen: () => this.dialog.close() });
           this.#loadDetail();
           return;
         }
