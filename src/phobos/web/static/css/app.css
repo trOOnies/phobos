@@ -204,6 +204,15 @@ main { outline: none; }
 .album-card h3 { font-size: 1rem; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .album-card p { margin: 2px 0 0; color: var(--muted); font-size: .88rem; }
 @media (hover: hover) { .album-card:hover .cover img { filter: brightness(.92); } }
+.album-item { position: relative; min-width: 0; }
+/* Heart over the cover's corner: white outline on any photo, filled pink once favorited
+   (the same look as the favorite mark on thumbnails). */
+.album-fav { position: absolute; top: 6px; right: 6px; color: #fff; filter: drop-shadow(0 0 2px #000a); }
+.album-fav svg { width: 22px; height: 22px; stroke-width: 1.8; }
+.icon-btn.album-fav[aria-pressed="true"] { color: #fff; }
+.icon-btn.album-fav[aria-pressed="true"] svg { fill: #ff6fae; stroke: #fff; stroke-width: 1.2; }
+@media (hover: hover) { .album-fav:hover svg { transform: scale(1.12); } }
+.album-fav:disabled { cursor: default; }
 .album-desc { color: var(--muted); margin: -6px 0 14px; white-space: pre-wrap; }
 
 /* ------------------------------------------------------------------ import */

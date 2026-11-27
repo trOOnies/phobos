@@ -494,7 +494,7 @@ def remove_person(conn: sqlite3.Connection, ids: Sequence[int], person_id: int) 
 # --------------------------------------------------------------------------- albums
 
 _ALBUM_SELECT = """
-SELECT a.id, a.name, a.description, a.created_at, a.updated_at, a.cover_media_id,
+SELECT a.id, a.name, a.description, a.favorite, a.created_at, a.updated_at, a.cover_media_id,
        (SELECT COUNT(*) FROM album_media am JOIN media m ON m.id = am.media_id
          WHERE am.album_id = a.id AND m.deleted_at IS NULL) AS count,
        COALESCE(
@@ -511,14 +511,21 @@ FROM albums a
 """
 
 
+def _album_row(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    d["favorite"] = bool(d["favorite"])
+    return d
+
+
 def list_albums(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = conn.execute(_ALBUM_SELECT + " ORDER BY a.updated_at DESC, a.id DESC")
-    return [dict(r) for r in rows]
+    """Favorite albums first, then the most recently changed."""
+    rows = conn.execute(_ALBUM_SELECT + " ORDER BY a.favorite DESC, a.updated_at DESC, a.id DESC")
+    return [_album_row(r) for r in rows]
 
 
 def get_album(conn: sqlite3.Connection, album_id: int) -> dict[str, Any] | None:
     row = conn.execute(_ALBUM_SELECT + " WHERE a.id = ?", (album_id,)).fetchone()
-    return dict(row) if row else None
+    return _album_row(row) if row else None
 
 
 def create_album(conn: sqlite3.Connection, name: str, description: str = "") -> int:
@@ -530,12 +537,18 @@ def create_album(conn: sqlite3.Connection, name: str, description: str = "") -> 
 
 
 def update_album(conn: sqlite3.Connection, album_id: int, **fields: Any) -> bool:
-    allowed = {"name", "description", "cover_media_id"}
+    allowed = {"name", "description", "cover_media_id", "favorite"}
     fields = {k: v for k, v in fields.items() if k in allowed}
-    sets = ", ".join(f"{k} = ?" for k in [*fields, "updated_at"])
-    cur = conn.execute(
-        f"UPDATE albums SET {sets} WHERE id = ?", [*fields.values(), now_iso(), album_id]
-    )
+    if "favorite" in fields:
+        fields["favorite"] = int(bool(fields["favorite"]))
+    if not fields:
+        return conn.execute("SELECT 1 FROM albums WHERE id = ?", (album_id,)).fetchone() is not None
+    # Favoriting isn't an edit to the album's contents, so it doesn't bump updated_at
+    # (which would reorder the album list).
+    if set(fields) != {"favorite"}:
+        fields["updated_at"] = now_iso()
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    cur = conn.execute(f"UPDATE albums SET {sets} WHERE id = ?", [*fields.values(), album_id])
     return cur.rowcount > 0
 
 

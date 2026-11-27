@@ -149,7 +149,7 @@ const searchMeta = (filter) => [
   filter.country || filter.city ? `in ${shortPlace(filter)}` : "",
 ].filter(Boolean).join(" ");
 
-async function libraryView({ title, filter, ctx, empty, head = [], extra = null, albumToggle = false, kindFilter = false, places = false, onTotal }) {
+async function libraryView({ title, filter, ctx, empty, head = [], afterTitle = null, extra = null, albumToggle = false, kindFilter = false, places = false, onTotal }) {
   // Wrapped so the message can change once we know whether albums hold everything.
   const emptyBox = h("div", {}, empty);
   const grid = makeGrid(filter, emptyBox, ctx);
@@ -160,7 +160,7 @@ async function libraryView({ title, filter, ctx, empty, head = [], extra = null,
   const toggle = albumToggle ? albumItemsToggle() : null;
   const page = h("div.page.library", {},
     h("div", {},
-      h("div.page-head", {}, ...head, h("h1", { text: title }), meta,
+      h("div.page-head", {}, ...head, h("h1", { text: title }), afterTitle, meta,
         h("div.actions", {}, kindFilter ? kindSwitch(filter.kind) : null,
           places ? placeFilter(filter, (p) => navigateWithParams(p)) : null, toggle, clear)),
       extra, banner, grid.el),
@@ -289,6 +289,7 @@ async function trashView(search) {
 async function albumView(albumId, search) {
   const album = await api.get(`/api/albums/${albumId}`);
   const back = h("a.icon-btn", { href: "#/albums", "aria-label": "All albums", title: "All albums" }, icon("left"));
+  const fav = albumFavoriteButton(album);
   const rename = button("Edit", {
     icon: "edit",
     onclick: async () => {
@@ -313,7 +314,7 @@ async function albumView(albumId, search) {
   });
   await libraryView({
     title: album.name, filter: { album: albumId, ...search }, ctx: "album",
-    head: [back],
+    head: [back], afterTitle: fav,
     empty: emptyState("album", "This album is empty. Select photos in the library and choose “Add to album”."),
     extra: h("div", {},
       album.description ? h("p.album-desc", { text: album.description }) : null,
@@ -335,13 +336,37 @@ async function albumsView() {
       } catch (err) { toastError(err); }
     },
   });
-  const cards = albums.map((a) => h("a.album-card", { href: `#/albums/${a.id}` },
-    h("div.cover", {}, a.cover_id ? h("img", { src: `/api/media/${a.cover_id}/thumb`, alt: "", loading: "lazy" }) : icon("album")),
-    h("h3", { text: a.name }),
-    h("p", { text: plural(a.count, "item") + (a.first_taken_at ? ` · ${yearRange(a)}` : "") })));
+  // The heart sits beside the link rather than inside it (no buttons inside links).
+  const cards = albums.map((a) => h("div.album-item", {},
+    h("a.album-card", { href: `#/albums/${a.id}` },
+      h("div.cover", {}, a.cover_id ? h("img", { src: `/api/media/${a.cover_id}/thumb`, alt: "", loading: "lazy" }) : icon("album")),
+      h("h3", { text: a.name }),
+      h("p", { text: plural(a.count, "item") + (a.first_taken_at ? ` · ${yearRange(a)}` : "") })),
+    albumFavoriteButton(a, { cls: "icon-btn.album-fav" })));
   view.replaceChildren(h("div.page", {},
     h("div.page-head", {}, h("h1", { text: "Albums" }), h("span.meta", { text: plural(albums.length, "album") }), h("div.actions", {}, create)),
     albums.length ? h("div.albums", {}, cards) : emptyState("album", "No albums yet.")));
+}
+
+/** Heart toggle for an album: an outline when not a favorite, filled when it is. */
+function albumFavoriteButton(album, { cls = "icon-btn" } = {}) {
+  const btn = h(`button.${cls}`, { type: "button", "data-v": "favorite" }, icon("heart"));
+  const sync = () => {
+    const label = album.favorite ? `Remove “${album.name}” from favorites` : `Add “${album.name}” to favorites`;
+    btn.setAttribute("aria-pressed", String(!!album.favorite));
+    btn.setAttribute("aria-label", label);
+    btn.title = album.favorite ? "Favorite album" : "Add to favorites";
+  };
+  sync();
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const updated = await api.patch(`/api/albums/${album.id}`, { favorite: !album.favorite });
+      album.favorite = updated.favorite;
+      sync();
+    } catch (err) { toastError(err); } finally { btn.disabled = false; }
+  });
+  return btn;
 }
 
 function yearRange(a) {

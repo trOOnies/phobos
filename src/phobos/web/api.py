@@ -560,6 +560,7 @@ class AlbumPatch(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = Field(None, max_length=5000)
     cover_media_id: int | None = None
+    favorite: bool | None = None
 
 
 @router.get("/albums")
@@ -584,6 +585,8 @@ def patch_album(album_id: int, body: AlbumPatch, conn: ConnDep) -> dict[str, Any
     fields = body.model_dump(exclude_unset=True)
     if "name" in fields:
         fields["name"] = fields["name"].strip()
+    if fields.get("favorite", False) is None:
+        raise HTTPException(422, "favorite must be true or false")
     if fields.get("cover_media_id") is not None:
         _require_media(conn, fields["cover_media_id"])
     repo.update_album(conn, album_id, **fields)

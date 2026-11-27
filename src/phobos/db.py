@@ -145,6 +145,10 @@ MIGRATIONS: list[str] = [
         WHERE NOT EXISTS (SELECT 1 FROM people WHERE is_self = 1);
     CREATE UNIQUE INDEX people_self ON people (is_self) WHERE is_self = 1;
     """,
+    # 6 - favorite albums (listed first)
+    """
+    ALTER TABLE albums ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

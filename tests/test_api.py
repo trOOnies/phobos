@@ -250,6 +250,27 @@ def test_albums(client: TestClient, seeded):
 # ------------------------------------------------------------------ files
 
 
+def test_favorite_album(client: TestClient):
+    first = client.post("/api/albums", json={"name": "First"}).json()
+    client.post("/api/albums", json={"name": "Second"})
+    assert first["favorite"] is False
+    # newest first by default
+    assert [a["name"] for a in client.get("/api/albums").json()] == ["Second", "First"]
+
+    r = client.patch(f"/api/albums/{first['id']}", json={"favorite": True})
+    assert r.status_code == 200
+    assert r.json()["favorite"] is True
+    assert r.json()["updated_at"] == first["updated_at"]  # favoriting isn't an edit
+    assert client.get(f"/api/albums/{first['id']}").json()["favorite"] is True
+    # favorites are listed first
+    assert [a["name"] for a in client.get("/api/albums").json()] == ["First", "Second"]
+
+    assert client.patch(f"/api/albums/{first['id']}", json={"favorite": None}).status_code == 422
+    r = client.patch(f"/api/albums/{first['id']}", json={"favorite": False})
+    assert r.json()["favorite"] is False
+    assert [a["name"] for a in client.get("/api/albums").json()] == ["Second", "First"]
+
+
 def test_item_in_several_albums_is_one_file(client: TestClient, seeded, no_ffmpeg):
     a = client.post("/api/albums", json={"name": "Beach"}).json()["id"]
     b = client.post("/api/albums", json={"name": "Family"}).json()["id"]
