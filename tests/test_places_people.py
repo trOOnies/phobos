@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from conftest import make_image
 from phobos import db, places
 from phobos.library import Library
+from phobos.repo import crop_face
 
 BUENOS_AIRES = (-34.6037, -58.3816)
 EIFFEL_TOWER = (48.8584, 2.2945)  # in "Paris 16 Passy", stored as Paris
@@ -279,8 +280,8 @@ def test_tagging_people_in_photos(client: TestClient, located):
 
     item = client.get(f"/api/media/{both}").json()
     assert item["people"] == [
-        {"id": rex, "name": "Rex", "kind": "animal"},
-        {"id": rosa, "name": "Rosa", "kind": "person"},
+        {"id": rex, "name": "Rex", "kind": "animal", "face": None},
+        {"id": rosa, "name": "Rosa", "kind": "person", "face": None},
     ]
     assert sorted(ids_of(client, person=rex)) == sorted([both, only_rex])
     assert ids_of(client, person=rosa) == [both]
@@ -317,6 +318,109 @@ def test_cropped_copy_keeps_people_and_place(client: TestClient, located):
     assert [p["name"] for p in detail["people"]] == ["Rex"]
     assert (detail["city"], detail["place_source"]) == ("Buenos Aires", "gps")
     assert client.get(f"/api/people/{rex}").json()["cover_media_id"] == new["id"]
+
+
+def test_tagging_a_face(client: TestClient, located):
+    rosa = client.post("/api/people", json={"name": "Rosa"}).json()["id"]
+    rex = client.post("/api/people", json={"name": "Rex", "kind": "animal"}).json()["id"]
+    mid = located["ba"]
+    url = f"/api/media/{mid}/people/{rosa}"
+
+    # Marking a face tags someone who wasn't in the photo yet.
+    face = {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
+    r = client.put(url, json={"face": face})
+    assert r.status_code == 200, r.text
+    assert r.json()["people"] == [{"id": rosa, "name": "Rosa", "kind": "person", "face": face}]
+    assert ids_of(client, person=rosa) == [mid]
+
+    # Moving it, and someone tagged the old way gets a box too.
+    moved = {"x": 0.5, "y": 0.5, "w": 0.25, "h": 0.25}
+    client.put(url, json={"face": moved})
+    body = {"ids": [mid], "action": "add_person", "person_id": rex}
+    client.post("/api/media/actions", json=body)
+    people = {p["id"]: p for p in client.get(f"/api/media/{mid}").json()["people"]}
+    assert (people[rosa]["face"], people[rex]["face"]) == (moved, None)
+    client.put(f"/api/media/{mid}/people/{rex}", json={"face": face})
+    people = {p["id"]: p for p in client.get(f"/api/media/{mid}").json()["people"]}
+    assert people[rex]["face"] == face
+
+    # null forgets the box but keeps the person.
+    r = client.put(url, json={"face": None})
+    assert {p["id"]: p["face"] for p in r.json()["people"]}[rosa] is None
+    assert ids_of(client, person=rosa) == [mid]
+
+    # Removing the person removes their box.
+    body = {"ids": [mid], "action": "remove_person", "person_id": rex}
+    client.post("/api/media/actions", json=body)
+    assert [p["id"] for p in client.get(f"/api/media/{mid}").json()["people"]] == [rosa]
+
+
+@pytest.mark.parametrize(
+    "face",
+    [
+        {"x": 0.8, "y": 0.1, "w": 0.3, "h": 0.1},  # past the right edge
+        {"x": 0.1, "y": 0.1, "w": 0, "h": 0.1},  # no width
+        {"x": -0.1, "y": 0.1, "w": 0.2, "h": 0.1},
+        {"x": 0.1, "y": 0.1, "w": 0.2},
+    ],
+)
+def test_face_validation(client: TestClient, located, face):
+    rosa = client.post("/api/people", json={"name": "Rosa"}).json()["id"]
+    r = client.put(f"/api/media/{located['ba']}/people/{rosa}", json={"face": face})
+    assert r.status_code == 422
+    assert client.get(f"/api/media/{located['ba']}").json()["people"] == []
+
+
+def test_face_needs_a_real_photo_and_person(client: TestClient, located, src_dir: Path):
+    rosa = client.post("/api/people", json={"name": "Rosa"}).json()["id"]
+    face = {"face": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}
+    assert client.put(f"/api/media/424242/people/{rosa}", json=face).status_code == 404
+    assert client.put(f"/api/media/{located['ba']}/people/4242", json=face).status_code == 404
+
+    video = src_dir / "clip.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+    vid = upload(client, video)
+    assert client.put(f"/api/media/{vid}/people/{rosa}", json=face).status_code == 422
+    # A video can still have people, just not boxes.
+    assert client.put(f"/api/media/{vid}/people/{rosa}", json={"face": None}).status_code == 200
+
+
+def test_cropping_moves_face_boxes(client: TestClient, located):
+    inside = client.post("/api/people", json={"name": "Inside"}).json()["id"]
+    outside = client.post("/api/people", json={"name": "Outside"}).json()["id"]
+    plain = client.post("/api/people", json={"name": "Plain"}).json()["id"]
+    src = located["ba"]
+    client.put(
+        f"/api/media/{src}/people/{inside}", json={"face": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}
+    )
+    client.put(
+        f"/api/media/{src}/people/{outside}",
+        json={"face": {"x": 0.7, "y": 0.7, "w": 0.2, "h": 0.2}},
+    )
+    client.put(f"/api/media/{src}/people/{plain}", json={"face": None})
+
+    box = {"left": 0, "top": 0, "right": 0.5, "bottom": 0.5}
+    r = client.post(f"/api/media/{src}/edit", json={"crop": box, "mode": "copy"})
+    assert r.status_code == 200, r.text
+    people = {
+        p["name"]: p["face"]
+        for p in client.get(f"/api/media/{r.json()['media']['id']}").json()["people"]
+    }
+    # Everyone stays tagged; the box inside the crop is scaled to the new picture.
+    assert people.keys() == {"Inside", "Outside", "Plain"}
+    assert people["Inside"] == pytest.approx({"x": 0.2, "y": 0.2, "w": 0.4, "h": 0.4})
+    assert people["Outside"] is None
+    assert people["Plain"] is None
+
+
+def test_crop_face_keeps_a_mostly_visible_face():
+    face = {"x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2}
+    # 75% of it stays in: clipped to the edge.
+    assert crop_face(face, (0.45, 0, 1, 1)) == pytest.approx(
+        {"x": 0, "y": 0.4, "w": 0.15 / 0.55, "h": 0.2}
+    )
+    assert crop_face(face, (0.55, 0, 1, 1)) is None  # only a quarter left
+    assert crop_face(face, (0, 0, 1, 1)) == pytest.approx(face)
 
 
 def test_purging_media_removes_its_people_links(client: TestClient, located):

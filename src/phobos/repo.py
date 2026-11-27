@@ -460,12 +460,50 @@ FACE_KEYS = ("x", "y", "w", "h")
 
 
 def media_people(conn: sqlite3.Connection, media_id: int) -> list[dict[str, Any]]:
+    """Who is in an item, each with ``face`` ({x, y, w, h} fractions of the upright
+    picture) when their face has been marked, else None."""
     rows = conn.execute(
-        "SELECT p.id, p.name, p.kind FROM people p JOIN media_people mp ON mp.person_id = p.id "
+        "SELECT p.id, p.name, p.kind, mp.face_x, mp.face_y, mp.face_w, mp.face_h "
+        "FROM people p JOIN media_people mp ON mp.person_id = p.id "
         "WHERE mp.media_id = ? ORDER BY p.is_self DESC, p.name COLLATE NOCASE",
         (media_id,),
     )
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        face = {k: d.pop(f"face_{k}") for k in FACE_KEYS}
+        d["face"] = face if face["w"] is not None else None
+        out.append(d)
+    return out
+
+
+def set_face(
+    conn: sqlite3.Connection, media_id: int, person_id: int, face: dict[str, float] | None
+) -> None:
+    """Mark where someone's face is in a photo (tagging them if they weren't yet);
+    ``None`` keeps them tagged but forgets the face."""
+    values = [face[k] for k in FACE_KEYS] if face else [None] * 4
+    conn.execute(
+        "INSERT INTO media_people (media_id, person_id, face_x, face_y, face_w, face_h) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (media_id, person_id) DO UPDATE SET "
+        "face_x = excluded.face_x, face_y = excluded.face_y, "
+        "face_w = excluded.face_w, face_h = excluded.face_h",
+        (media_id, person_id, *values),
+    )
+
+
+def crop_face(
+    face: dict[str, float], box: tuple[float, float, float, float]
+) -> dict[str, float] | None:
+    """Where a face ends up after cropping to ``box`` (left, top, right, bottom), or None
+    when less than half of it is still in the picture."""
+    left, top, right, bottom = box
+    x1, y1 = max(face["x"], left), max(face["y"], top)
+    x2, y2 = min(face["x"] + face["w"], right), min(face["y"] + face["h"], bottom)
+    if x2 <= x1 or y2 <= y1 or (x2 - x1) * (y2 - y1) < 0.5 * face["w"] * face["h"]:
+        return None
+    bw, bh = right - left, bottom - top
+    return {"x": (x1 - left) / bw, "y": (y1 - top) / bh, "w": (x2 - x1) / bw, "h": (y2 - y1) / bh}
 
 
 def add_person(conn: sqlite3.Connection, ids: Sequence[int], person_id: int) -> int:
@@ -673,10 +711,18 @@ def interrupt_unfinished_imports(conn: sqlite3.Connection) -> int:
 
 
 def copy_media_details(
-    conn: sqlite3.Connection, src_id: int, dst_id: int, *, take_over_covers: bool = False
+    conn: sqlite3.Connection,
+    src_id: int,
+    dst_id: int,
+    *,
+    take_over_covers: bool = False,
+    crop: tuple[float, float, float, float] | None = None,
 ) -> None:
     """Give an edited copy the original's date, description, favorite, place, tags,
-    people and albums."""
+    people and albums. Marked faces move with ``crop`` (the box the copy was cut
+    from); a face that was cropped out is forgotten, but the person stays tagged."""
+    box = crop or (0.0, 0.0, 1.0, 1.0)
+    people = media_people(conn, src_id)
     copied = (
         "taken_at, taken_at_source, description, favorite, camera_make, camera_model, "
         "latitude, longitude, city, region, country, place_source"
@@ -691,11 +737,8 @@ def copy_media_details(
             "SELECT ?, tag_id FROM media_tags WHERE media_id = ?",
             (dst_id, src_id),
         )
-        conn.execute(
-            "INSERT OR IGNORE INTO media_people (media_id, person_id) "
-            "SELECT ?, person_id FROM media_people WHERE media_id = ?",
-            (dst_id, src_id),
-        )
+        for p in people:
+            set_face(conn, dst_id, p["id"], p["face"] and crop_face(p["face"], box))
         conn.execute(
             "INSERT OR IGNORE INTO album_media (album_id, media_id, added_at) "
             "SELECT album_id, ?, ? FROM album_media WHERE media_id = ?",

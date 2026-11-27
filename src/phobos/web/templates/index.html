@@ -12,6 +12,7 @@
 <body>
   <svg class="sprite" aria-hidden="true">
     <symbol id="i-photos" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+    <symbol id="i-face" viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="11" r="3.2"/><path d="M7 18c1-2.4 2.8-3.4 5-3.4s4 1 5 3.4"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-9.2-9A5 5 0 0 1 12 6a5 5 0 0 1 9.2 5C19 15.6 12 20 12 20z"/></symbol>
     <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></symbol>
     <symbol id="i-album" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18M8 3v12"/></symbol>
@@ -88,6 +89,7 @@
         <button type="button" class="icon-btn" data-v="favorite" aria-label="Favorite (F)" title="Favorite (F)" aria-pressed="false"><svg><use href="#i-heart"/></svg></button>
         <button type="button" class="icon-btn" data-v="album" aria-label="Add to album (A)" title="Add to album (A)"><svg><use href="#i-album"/></svg></button>
         <button type="button" class="icon-btn" data-v="people" aria-label="Tag people and pets (P)" title="Tag people and pets (P)"><svg><use href="#i-person"/></svg></button>
+        <button type="button" class="icon-btn" data-v="face" aria-label="Tag a face (T)" title="Tag a face: drag a box around it (T)"><svg><use href="#i-face"/></svg></button>
         <button type="button" class="icon-btn" data-v="edit" aria-label="Edit (E)" title="Edit: crop (E)"><svg><use href="#i-crop"/></svg></button>
         <a class="icon-btn" data-v="download" aria-label="Download original" title="Download original" download><svg><use href="#i-download"/></svg></a>
         <button type="button" class="icon-btn" data-v="trash" aria-label="Move to trash (Del)" title="Move to trash (Del)"><svg><use href="#i-trash"/></svg></button>
@@ -284,9 +286,15 @@
             <ul>
               <li>Open a photo and press <kbd>P</kbd> (or the <strong>person</strong> button). Type a name
                 and press <kbd>Enter</kbd>. Someone new? Choose <strong>Person</strong> or <strong>Animal</strong>.</li>
+              <li><strong>Tag a face:</strong> in a photo, press <kbd>T</kbd> (or the <strong>face</strong> button),
+                drag a box around someone's face and pick who it is. Open the details (<kbd>I</kbd>) to see
+                everyone's box with their name; click a name to see all of their photos.</li>
+              <li>Already tagged someone without a box? Click the <strong>face</strong> button on their name
+                in the details to mark where they are. The same button moves a box that's in the wrong place.</li>
               <li>To tag many at once, select them and click <strong>People</strong> in the bar at the top.</li>
-              <li>Names can be anything you like: &ldquo;Grandma Rosa&rdquo;, &ldquo;Me&rdquo;, &ldquo;Rex&rdquo;&hellip;
+              <li>Names can be anything you like: &ldquo;Grandma Rosa&rdquo;, &ldquo;Rex&rdquo;&hellip;
                 Each name is used once, so you always get the same person.</li>
+              <li><strong>You</strong> is always there: tag yourself with it. It can't be renamed or removed.</li>
               <li><a href="#/people">People</a> lists everyone with how many photos they're in. Open someone
                 to see their photos, rename them, or pick the photo shown on their card
                 (select it and click <strong>Use as photo</strong>).</li>
@@ -345,7 +353,8 @@
                 <strong>Trim black borders</strong> finds the picture inside a black screenshot background for you.</li>
               <li><strong>Save</strong> keeps the cropped photo and puts the original in the Trash, just in case.
                 <strong>Save as copy</strong> keeps both.</li>
-              <li>The cropped photo keeps its date, description, place, people, tags, albums and favorite.</li>
+              <li>The cropped photo keeps its date, description, place, people, tags, albums and favorite.
+                Face boxes move with the crop; a face that was cropped out loses its box, but the person stays tagged.</li>
             </ul>
           </section>
 
@@ -386,6 +395,7 @@
               <dt><kbd>F</kbd></dt><dd>Favorite</dd>
               <dt><kbd>I</kbd></dt><dd>Show details</dd>
               <dt><kbd>P</kbd></dt><dd>Tag people and pets</dd>
+              <dt><kbd>T</kbd></dt><dd>Tag a face (drag a box around it)</dd>
               <dt><kbd>A</kbd></dt><dd>Add to album</dd>
               <dt><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>Move between albums in the Add to album window</dd>
               <dt><kbd>E</kbd></dt><dd>Crop the photo</dd>

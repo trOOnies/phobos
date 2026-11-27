@@ -149,6 +149,14 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE albums ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
     """,
+    # 7 - where someone's face is in a photo: a box as fractions (0-1) of the upright
+    # picture, all NULL when they're only marked as being in it
+    """
+    ALTER TABLE media_people ADD COLUMN face_x REAL;
+    ALTER TABLE media_people ADD COLUMN face_y REAL;
+    ALTER TABLE media_people ADD COLUMN face_w REAL;
+    ALTER TABLE media_people ADD COLUMN face_h REAL;
+    """,
 ]
 
 

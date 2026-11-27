@@ -1,5 +1,5 @@
-// People and pets: who is in a photo or video. For now Phobos only records that
-// someone is in it (not where in the picture); names are whatever the user likes.
+// People and pets: who is in a photo or video, and (in photos, optionally) where their
+// face is - see faces.js. Names are whatever the user likes.
 
 import { api } from "./api.js";
 import { button, h, icon, plural, toastError } from "./ui.js";
@@ -49,17 +49,18 @@ function cover(person, size = "") {
 
 /**
  * "Who's in these?" - pick someone, or add someone new.
- * @param {{count?: number, contains?: number[]}} opts  how many items; people already in them
+ * @param {{count?: number, contains?: number[], title?: string}} opts  how many items; people
+ *   already in them; a heading other than "Who's in this?"
  * @returns {Promise<object|null>} the person (created if new)
  */
-export async function pickPerson({ count = 1, contains = [] } = {}) {
+export async function pickPerson({ count = 1, contains = [], title = null } = {}) {
   const d = document.getElementById("person-picker");
   const list = d.querySelector("#person-choices");
   const filter = d.querySelector("#person-filter");
   const nameInput = d.querySelector("#person-new-name");
   const people = await loadPeople();
   const already = new Set(contains);
-  d.querySelector("#person-picker-title").textContent = count === 1 ? "Who's in this?" : `Who's in these ${count.toLocaleString()}?`;
+  d.querySelector("#person-picker-title").textContent = title ?? (count === 1 ? "Who's in this?" : `Who's in these ${count.toLocaleString()}?`);
   nameInput.value = "";
   filter.value = "";
   filter.hidden = people.length < 8;

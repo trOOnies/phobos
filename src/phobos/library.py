@@ -404,7 +404,9 @@ class Library:
 
         with self.conn() as conn:
             if result.status == "imported":
-                repo.copy_media_details(conn, item["id"], result.media_id, take_over_covers=replace)
+                repo.copy_media_details(
+                    conn, item["id"], result.media_id, take_over_covers=replace, crop=box
+                )
             if replace:
                 repo.trash(conn, [item["id"]])
         log.info("cropped %s -> media %s%s", item["rel_path"], result.media_id,

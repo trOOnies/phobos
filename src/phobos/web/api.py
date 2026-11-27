@@ -548,6 +548,39 @@ def delete_person(person_id: int, conn: ConnDep) -> Response:
     return Response(status_code=204)
 
 
+class FaceBox(BaseModel):
+    """Where a face is: fractions (0-1) of the upright picture."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0, le=1)
+    h: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _inside(self) -> FaceBox:
+        if self.x + self.w > 1.0001 or self.y + self.h > 1.0001:
+            raise ValueError("the face box goes outside the picture")
+        self.w = min(self.w, 1 - self.x)
+        self.h = min(self.h, 1 - self.y)
+        return self
+
+
+class FaceIn(BaseModel):
+    # null: keep the person tagged but forget where their face is
+    face: FaceBox | None
+
+
+@router.put("/media/{media_id}/people/{person_id}")
+def set_face(media_id: int, person_id: int, body: FaceIn, conn: ConnDep) -> dict[str, Any]:
+    """Tag someone's face in a photo (tagging them if they weren't yet), or move it."""
+    item = _require_media(conn, media_id)
+    _require_person(conn, person_id)
+    if body.face is not None and item["kind"] != "image":
+        raise HTTPException(422, "Faces can only be marked on photos.")
+    repo.set_face(conn, media_id, person_id, body.face.model_dump() if body.face else None)
+    return serialize(_require_media(conn, media_id))
+
+
 # --------------------------------------------------------------------------- albums
 
 

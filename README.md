@@ -29,7 +29,8 @@ Your original files are never moved or changed. Phobos keeps its own organised c
 - 📍 **Places**: photos and videos with GPS get a place name (city, region, country), looked
   up on your own computer. Show only one country or city, or type a place in by hand.
 - 🧑‍🤝‍🧑 **People & pets**: mark who is in a photo or video – any name you like, for people
-  or animals – and see all of their pictures together. Tag yourself as the built-in **You**.
+  or animals – and see all of their pictures together. Draw a box around a face to show
+  who is who. Tag yourself as the built-in **You**.
 - 🔎 **Search** by file name, description, place, person, tag, camera or date (try `2023-07`).
 - ✂️ **Crop photos**: drag a box, pick a shape like Square or 16:9, or let Phobos trim the
   black borders around screenshots for you. Your original is kept in the Trash, just in case.

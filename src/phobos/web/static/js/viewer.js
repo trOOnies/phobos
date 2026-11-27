@@ -1,10 +1,11 @@
 // Full-screen viewer (<dialog> opened with showModal()).
-// Keys: ←/→ navigate, F favorite, I info, P people & pets, A add to album, E edit (crop),
-// Del trash, Esc close.
+// Keys: ←/→ navigate, F favorite, I info, P people & pets, T tag a face, A add to album,
+// E edit (crop), Del trash, Esc close.
 
 import { api } from "./api.js";
 import { CropEditor } from "./editor.js";
-import { createPerson, findPerson, invalidatePeople, kindIcon, loadPeople } from "./people.js";
+import { FaceLayer } from "./faces.js";
+import { createPerson, findPerson, invalidatePeople, kindIcon, loadPeople, pickPerson } from "./people.js";
 import { editPlace, formatPlace, invalidatePlaces, placeHref } from "./places.js";
 import {
   albumToast, formatBytes, formatDateTime, formatDuration, formatLongDate, h, icon, toast, toastError,
@@ -29,6 +30,7 @@ export class Viewer {
     this.names = h("datalist", { id: "people-names" });
     this.dialog.append(this.names);
     this.focusPeople = false; // put the cursor back in the people field after a re-render
+    this.faces = null; // FaceLayer over the current photo
 
     try { this.info.hidden = localStorage.getItem(INFO_KEY) !== "1"; } catch { /* storage unavailable */ }
     this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
@@ -39,9 +41,10 @@ export class Viewer {
     });
     this.editor = new CropEditor(this.dialog);
     this.dialog.addEventListener("keydown", (e) => this.#onKey(e));
-    // Esc while cropping leaves the editor, not the viewer.
+    // Esc while cropping (or drawing a face box) stops that, not the viewer.
     this.dialog.addEventListener("cancel", (e) => {
       if (this.editor.open) { e.preventDefault(); this.editor.cancel(); }
+      else if (this.faces?.drawing) { e.preventDefault(); this.faces.cancel(); }
     });
     this.dialog.addEventListener("close", () => this.#onClose());
   }
@@ -59,6 +62,8 @@ export class Viewer {
 
   #onClose() {
     if (this.editor.open) this.editor.cancel();
+    this.faces?.destroy();
+    this.faces = null;
     this.stage.replaceChildren(); // stops video playback
     const tile = this.item && this.grid.tileFor(this.item.id);
     if (tile) {
@@ -68,10 +73,10 @@ export class Viewer {
   }
 
   #onKey(e) {
-    if (this.editor.open) return;
+    if (this.editor.open || this.faces?.drawing) return;
     if (e.target.closest("input, textarea")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", p: "people", a: "album", e: "edit", Delete: "trash" };
+    const map = { ArrowLeft: "prev", ArrowRight: "next", f: "favorite", i: "info", p: "people", t: "face", a: "album", e: "edit", Delete: "trash" };
     const action = map[e.key] ?? map[e.key.toLowerCase()];
     if (!action) return;
     // Let the video element handle arrow keys (seeking) when it has focus.
@@ -92,8 +97,10 @@ export class Viewer {
           this.btn.info.setAttribute("aria-pressed", String(!this.info.hidden));
           try { localStorage.setItem(INFO_KEY, this.info.hidden ? "0" : "1"); } catch { /* ignore */ }
           if (!this.info.hidden) this.#renderInfo();
+          this.#renderFaces();
           return;
         }
+        case "face": return this.#tagFace();
         case "people": {
           this.focusPeople = true; // kept until the details (with the people) have loaded
           if (this.info.hidden) await this.#act("info");
@@ -183,6 +190,36 @@ export class Viewer {
     this.onChange(item, this.grid);
     this.#renderBar();
     if (!this.info.hidden) this.#renderInfo();
+    this.#renderFaces();
+  }
+
+  /** Face boxes on the photo: shown while the details panel is open, or while drawing. */
+  #renderFaces() {
+    if (!this.faces) return;
+    this.faces.show(this.detail?.people ?? []);
+    this.stage.classList.toggle("show-faces", !this.info.hidden);
+    this.faces.layout(); // the panel opening or closing resizes the photo
+  }
+
+  /**
+   * Drag a box around a face, then say whose it is (or pass who it is, to mark or move
+   * their face). Tags them in the photo if they weren't yet.
+   */
+  async #tagFace(person = null) {
+    const item = this.item;
+    if (!this.faces || !canTagFaces(item)) return;
+    if (this.info.hidden) await this.#act("info"); // show the other boxes and the names
+    const face = await this.faces.draw(person ? `Drag a box around ${person.name}'s face` : "Drag a box around a face");
+    if (!face || this.item?.id !== item.id) return;
+    const who = person ?? await pickPerson({
+      title: "Whose face is this?", contains: (this.detail?.people ?? []).map((p) => p.id),
+    });
+    if (!who) return this.#renderFaces(); // drops the drawn box
+    try {
+      const updated = await api.put(`/api/media/${item.id}/people/${who.id}`, { face });
+      invalidatePeople();
+      this.#updated(updated);
+    } catch (err) { toastError(err); this.#renderFaces(); }
   }
 
   #render() {
@@ -205,6 +242,7 @@ export class Viewer {
       if (this.item?.id !== id) return;
       this.detail = detail;
       if (!this.info.hidden) this.#renderInfo();
+      this.#renderFaces();
     } catch (err) {
       toastError(err);
     }
@@ -226,15 +264,22 @@ export class Viewer {
     this.btn.trash.hidden = !!item.deleted_at;
     this.btn.album.hidden = !!item.deleted_at;
     this.btn.people.hidden = !!item.deleted_at;
+    this.btn.face.hidden = !canTagFaces(item);
     this.btn.edit.hidden = !editable(item);
     this.btn.prev.disabled = this.idx === 0;
     this.btn.next.disabled = this.grid.done && this.idx >= this.grid.items.length - 1;
   }
 
   #renderMedia(item) {
+    this.faces?.destroy();
+    this.faces = null;
     if (item.kind === "image") {
       const img = h("img", { src: item.preview_url, alt: item.description || item.original_name });
       this.stage.replaceChildren(img);
+      this.faces = new FaceLayer(img, this.stage, {
+        onOpen: (p) => { this.dialog.close(); location.hash = `#/people/${p.id}`; },
+      });
+      this.#renderFaces();
       return;
     }
     const video = h("video", {
@@ -359,11 +404,24 @@ export class Viewer {
       await api.action([item.id], "add_person", { person_id: person.id });
       this.focusPeople = true;
     });
-    const chips = people.map((p) => h("span.chip", {},
-      h("a", { href: `#/people/${p.id}`, onclick: () => this.dialog.close(), title: `Everything with ${p.name}` },
-        icon(kindIcon(p.kind)), h("span", { text: p.name })),
-      h("button", { type: "button", "aria-label": `${p.name} isn't in this`, title: `${p.name} isn't in this`,
-        onclick: () => update(() => api.action([item.id], "remove_person", { person_id: p.id })) }, icon("close"))));
+    const faces = canTagFaces(item);
+    const chips = people.map((p) => {
+      const faceLabel = p.face ? `Move ${p.name}'s face box` : `Mark where ${p.name} is`;
+      return h("span.chip", {
+        // Hovering a name lights up their box on the photo.
+        onpointerenter: () => this.faces?.highlight(p.id),
+        onpointerleave: () => this.faces?.highlight(null),
+      },
+        h("a", { href: `#/people/${p.id}`, onclick: () => this.dialog.close(), title: `Everything with ${p.name}` },
+          icon(kindIcon(p.kind)), h("span", { text: p.name })),
+        faces ? h(`button${p.face ? ".has-face" : ""}`, { type: "button", "aria-label": faceLabel, title: faceLabel,
+          onclick: () => this.#tagFace(p) }, icon("face")) : null,
+        h("button", { type: "button", "aria-label": `${p.name} isn't in this`, title: `${p.name} isn't in this`,
+          onclick: () => update(() => api.action([item.id], "remove_person", { person_id: p.id })) }, icon("close")));
+    });
+    const tagFace = faces
+      ? h("button.link-btn.tag-face", { type: "button", onclick: () => this.#tagFace() }, icon("face"), h("span", { text: "Tag a face (T)" }))
+      : null;
 
     const input = h("input.people-input", { placeholder: "Add a name, press Enter", maxLength: 100, list: "people-names", "aria-label": "Add a person or pet", autocomplete: "off" });
     // Someone new: ask whether it's a person or an animal before saving the name.
@@ -405,8 +463,14 @@ export class Viewer {
       h("span.label", { text: "People & pets" }),
       chips.length ? h("div.chips", {}, chips) : null,
       item.deleted_at ? null : input,
-      ask);
+      ask,
+      tagFace);
   }
+}
+
+/** Photos whose faces can be marked (not videos or trashed items). */
+function canTagFaces(item) {
+  return item.kind === "image" && !item.deleted_at;
 }
 
 /** Photos that can be cropped (not videos, GIFs or trashed items). */
