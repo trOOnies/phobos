@@ -177,7 +177,26 @@ def test_migration_adds_places_to_an_existing_library(tmp_path: Path):
     db.migrate(conn)
     row = conn.execute("SELECT country, place_source FROM media").fetchone()
     assert tuple(row) == (None, None)  # filled in by Library.fill_places at startup
-    assert conn.execute("SELECT COUNT(*) FROM people").fetchone()[0] == 0
+    assert [tuple(r) for r in conn.execute("SELECT name, is_self FROM people")] == [("You", 1)]
+    conn.close()
+
+
+def test_migration_turns_an_existing_you_into_the_built_in_one(tmp_path: Path):
+    path = tmp_path / "old.db"
+    conn = db.connect(path)
+    for version, script in enumerate(db.MIGRATIONS[:4], start=1):
+        for statement in filter(str.strip, script.split(";")):
+            conn.execute(statement)
+        conn.execute(f"PRAGMA user_version = {version}")
+    conn.execute(
+        "INSERT INTO people (name, kind, created_at) VALUES "
+        "('you', 'animal', '2020-01-01T00:00:00'), ('Rex', 'animal', '2020-01-01T00:00:00')"
+    )
+    db.migrate(conn)
+    rows = [
+        tuple(r) for r in conn.execute("SELECT id, name, kind, is_self FROM people ORDER BY id")
+    ]
+    assert rows == [(1, "You", "person", 1), (2, "Rex", "animal", 0)]
     conn.close()
 
 
@@ -200,7 +219,7 @@ def test_people_crud(client: TestClient):
     assert client.post("/api/people", json={"name": "   "}).status_code == 422
     assert client.post("/api/people", json={"name": "Tom", "kind": "robot"}).status_code == 422
 
-    assert [p["name"] for p in client.get("/api/people").json()] == ["Grandma Rosa", "Rex"]
+    assert [p["name"] for p in client.get("/api/people").json()] == ["You", "Grandma Rosa", "Rex"]
     r = client.patch(f"/api/people/{rex['id']}", json={"name": "Rex the dog"})
     assert r.json()["name"] == "Rex the dog"
     r = client.patch(f"/api/people/{rex['id']}", json={"name": "GRANDMA ROSA"})
@@ -211,6 +230,35 @@ def test_people_crud(client: TestClient):
     assert client.delete(f"/api/people/{rex['id']}").status_code == 204
     assert client.get(f"/api/people/{rex['id']}").status_code == 404
     assert client.delete(f"/api/people/{rex['id']}").status_code == 404
+
+
+def test_you_is_built_in(client: TestClient, located):
+    people = client.get("/api/people").json()
+    you = people[0]
+    assert (you["name"], you["kind"], you["is_self"], you["count"]) == ("You", "person", True, 0)
+    assert len(people) == 1
+    pid = you["id"]
+    # It can't be removed, renamed or turned into an animal, and the name is taken.
+    assert client.delete(f"/api/people/{pid}").status_code == 409
+    assert client.patch(f"/api/people/{pid}", json={"name": "Me"}).status_code == 409
+    assert client.patch(f"/api/people/{pid}", json={"kind": "animal"}).status_code == 409
+    assert client.post("/api/people", json={"name": "you"}).status_code == 409
+    rex = client.post("/api/people", json={"name": "Rex", "kind": "animal"}).json()["id"]
+    assert client.patch(f"/api/people/{rex}", json={"name": "YOU"}).status_code == 409
+    # ...but it can be tagged and given a photo, like anyone else.
+    mid = located["ba"]
+    body = {"ids": [mid], "action": "add_person", "person_id": pid}
+    assert client.post("/api/media/actions", json=body).json()["affected"] == 1
+    assert (
+        client.patch(f"/api/people/{pid}", json={"name": "You", "cover_media_id": mid}).json()[
+            "cover_id"
+        ]
+        == mid
+    )
+    assert ids_of(client, person=pid) == [mid]
+    assert client.get("/api/people").json()[0] == client.get(f"/api/people/{pid}").json()
+    assert client.get("/api/people").json()[0]["count"] == 1
+    assert client.get(f"/api/people/{pid}").json()["name"] == "You"
 
 
 def test_tagging_people_in_photos(client: TestClient, located):
@@ -292,6 +340,7 @@ def test_metrics_count_places_and_people(client: TestClient, located):
     client.post("/api/media/actions", json={"ids": ids, "action": "add_person", "person_id": rex})
     m = client.get("/api/metrics").json()
     t = m["totals"]
+    # The built-in "You" isn't counted until it's tagged in something.
     assert (t["with_location"], t["with_place"], t["people"], t["with_people"]) == (3, 2, 1, 2)
     # Ties come in any order.
     assert sorted(m["countries"], key=lambda c: c["country"]) == [

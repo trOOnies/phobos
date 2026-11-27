@@ -135,14 +135,15 @@ export async function renderPeople(view) {
     ? h("section.people-group", {}, h("h2", { text: `${title} · ${list.length.toLocaleString()}` }), h("div.albums.people", {}, list.map(card)))
     : null);
   const meta = `${humans.length.toLocaleString()} ${humans.length === 1 ? "person" : "people"} · ${plural(animals.length, "animal")}`;
+  // "You" is always there, so the hint shows until someone else is added or you're tagged.
+  const started = people.some((p) => !p.is_self || p.count);
   view.replaceChildren(h("div.page", {},
     h("div.page-head", {}, h("h1", { text: "People & pets" }), h("span.meta", { text: meta }), h("div.actions", {}, add)),
-    people.length
-      ? h("div", {}, group("People", humans), group("Animals", animals))
-      : h("div.empty", {}, icon("people"),
-        h("h2", { text: "Who's in your photos?" }),
-        h("p", { text: "Open a photo and press P to add the people and pets in it, or select several and choose “People”." }),
-        add.cloneNode(true)),
+    h("div", {}, group("People", humans), group("Animals", animals)),
+    started ? null : h("div.empty", {}, icon("people"),
+      h("h2", { text: "Who's in your photos?" }),
+      h("p", { text: "Open a photo and press P to add the people and pets in it – type “You” for yourself – or select several and choose “People”." }),
+      add.cloneNode(true)),
   ));
   // cloneNode drops listeners: wire the empty-state copy too.
   view.querySelector(".empty .btn")?.addEventListener("click", () => add.click());

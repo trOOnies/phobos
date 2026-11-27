@@ -524,8 +524,10 @@ def get_person(person_id: int, conn: ConnDep) -> dict[str, Any]:
 
 @router.patch("/people/{person_id}")
 def patch_person(person_id: int, body: PersonPatch, conn: ConnDep) -> dict[str, Any]:
-    _require_person(conn, person_id)
+    person = _require_person(conn, person_id)
     fields = body.model_dump(exclude_unset=True)
+    if person["is_self"] and any(k in fields and fields[k] != person[k] for k in ("name", "kind")):
+        raise HTTPException(409, "“You” is built in: only its photo can be changed.")
     if "name" in fields and not repo.normalize_name(fields["name"] or ""):
         raise HTTPException(422, "name is required")
     if fields.get("cover_media_id") is not None:
@@ -539,6 +541,8 @@ def patch_person(person_id: int, body: PersonPatch, conn: ConnDep) -> dict[str, 
 
 @router.delete("/people/{person_id}", status_code=204)
 def delete_person(person_id: int, conn: ConnDep) -> Response:
+    if _require_person(conn, person_id)["is_self"]:
+        raise HTTPException(409, "“You” is built in and can't be removed.")
     if not repo.delete_person(conn, person_id):
         raise HTTPException(404, "person not found")
     return Response(status_code=204)

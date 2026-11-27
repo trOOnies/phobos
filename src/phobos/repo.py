@@ -386,7 +386,7 @@ def list_places(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 PERSON_KINDS = ("person", "animal")
 
 _PERSON_SELECT = """
-SELECT p.id, p.name, p.kind, p.created_at, p.cover_media_id,
+SELECT p.id, p.name, p.kind, p.is_self, p.created_at, p.cover_media_id,
        (SELECT COUNT(*) FROM media_people mp JOIN media m ON m.id = mp.media_id
          WHERE mp.person_id = p.id AND m.deleted_at IS NULL) AS count,
        COALESCE(
@@ -404,20 +404,29 @@ def normalize_name(name: str) -> str:
     return " ".join(name.strip().split())[:100]
 
 
+def _person(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    person = dict(row)
+    person["is_self"] = bool(person["is_self"])
+    return person
+
+
 def list_people(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    return [dict(r) for r in conn.execute(_PERSON_SELECT + " ORDER BY p.name COLLATE NOCASE")]
+    """Everyone by name, with "You" first."""
+    rows = conn.execute(_PERSON_SELECT + " ORDER BY p.is_self DESC, p.name COLLATE NOCASE")
+    return [_person(r) for r in rows]  # type: ignore[misc]
 
 
 def get_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any] | None:
-    row = conn.execute(_PERSON_SELECT + " WHERE p.id = ?", (person_id,)).fetchone()
-    return dict(row) if row else None
+    return _person(conn.execute(_PERSON_SELECT + " WHERE p.id = ?", (person_id,)).fetchone())
 
 
 def find_person(conn: sqlite3.Connection, name: str) -> dict[str, Any] | None:
     row = conn.execute(
         _PERSON_SELECT + " WHERE p.name = ? COLLATE NOCASE", (normalize_name(name),)
     ).fetchone()
-    return dict(row) if row else None
+    return _person(row)
 
 
 def create_person(conn: sqlite3.Connection, name: str, kind: str = "person") -> int:
@@ -441,14 +450,19 @@ def update_person(conn: sqlite3.Connection, person_id: int, **fields: Any) -> bo
 
 
 def delete_person(conn: sqlite3.Connection, person_id: int) -> bool:
-    """Forget a person or pet; their photos and videos stay."""
-    return conn.execute("DELETE FROM people WHERE id = ?", (person_id,)).rowcount > 0
+    """Forget a person or pet; their photos and videos stay. The built-in "You" stays too."""
+    return (
+        conn.execute("DELETE FROM people WHERE id = ? AND NOT is_self", (person_id,)).rowcount > 0
+    )
+
+
+FACE_KEYS = ("x", "y", "w", "h")
 
 
 def media_people(conn: sqlite3.Connection, media_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT p.id, p.name, p.kind FROM people p JOIN media_people mp ON mp.person_id = p.id "
-        "WHERE mp.media_id = ? ORDER BY p.name COLLATE NOCASE",
+        "WHERE mp.media_id = ? ORDER BY p.is_self DESC, p.name COLLATE NOCASE",
         (media_id,),
     )
     return [dict(r) for r in rows]
@@ -859,7 +873,11 @@ def metrics(conn: sqlite3.Connection) -> dict[str, Any]:
     ).fetchone()[0]
     totals["albums"] = conn.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
     totals["tags"] = conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
-    totals["people"] = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+    # The built-in "You" counts once it's tagged in something.
+    totals["people"] = conn.execute(
+        "SELECT COUNT(*) FROM people p WHERE NOT p.is_self "
+        "OR EXISTS (SELECT 1 FROM media_people mp WHERE mp.person_id = p.id)"
+    ).fetchone()[0]
     totals["with_people"] = conn.execute(
         "SELECT COUNT(DISTINCT mp.media_id) FROM media_people mp "
         "JOIN media m ON m.id = mp.media_id WHERE m.deleted_at IS NULL"

@@ -135,6 +135,16 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX media_people_person ON media_people (person_id);
     """,
+    # 5 - a built-in "You" that can't be removed, so the user can tag themselves.
+    # Someone already called "You" becomes that person (keeping their photos).
+    """
+    ALTER TABLE people ADD COLUMN is_self INTEGER NOT NULL DEFAULT 0;
+    UPDATE people SET is_self = 1, name = 'You', kind = 'person' WHERE name = 'You' COLLATE NOCASE;
+    INSERT INTO people (name, kind, is_self, created_at)
+        SELECT 'You', 'person', 1, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')
+        WHERE NOT EXISTS (SELECT 1 FROM people WHERE is_self = 1);
+    CREATE UNIQUE INDEX people_self ON people (is_self) WHERE is_self = 1;
+    """,
 ]
 
 

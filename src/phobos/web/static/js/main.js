@@ -352,7 +352,7 @@ function yearRange(a) {
 async function personView(personId, search) {
   const person = await api.get(`/api/people/${personId}`);
   const back = h("a.icon-btn", { href: "#/people", "aria-label": "Everyone", title: "Everyone" }, icon("left"));
-  const kind = h("span.kind-pill", {}, icon(kindIcon(person.kind)), h("span", { text: kindLabel(person.kind) }));
+  const kind = h("span.kind-pill", {}, icon(kindIcon(person.kind)), h("span", { text: person.is_self ? "That's you" : kindLabel(person.kind) }));
   const edit = button("Edit", {
     icon: "edit",
     onclick: async () => {
@@ -381,7 +381,8 @@ async function personView(personId, search) {
     head: [back],
     empty: search.q || search.tag || search.country || search.city ? emptyState("search", "No matches.")
       : emptyState(kindIcon(person.kind), `No photos of ${person.name} yet. Open a photo and press P, or select photos in the library and choose “People”.`),
-    extra: h("div.row", { style: "margin-bottom:14px" }, kind, edit, del),
+    // "You" is built in: it can't be renamed or removed.
+    extra: h("div.row", { style: "margin-bottom:14px" }, kind, person.is_self ? null : edit, person.is_self ? null : del),
   });
   current.person = person;
 }
